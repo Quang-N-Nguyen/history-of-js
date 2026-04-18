@@ -1,0 +1,5 @@
+{
+  "entry": "transpile.js",
+  "run": "npm install acorn astring acorn-typescript --no-save && node transpile.js src/main.ts > out.js",
+  "order": 5
+}

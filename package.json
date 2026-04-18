@@ -10,7 +10,10 @@
     "proxy:dev": "tsx --env-file=.env proxy/server.ts",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
-    "docs:preview": "vitepress preview docs"
+    "docs:preview": "vitepress preview docs",
+    "app:dev": "npm --prefix app run dev",
+    "app:build": "npm --prefix app run build",
+    "app:preview": "npm --prefix app run preview"
   },
   "devDependencies": {
     "@hono/node-server": "^1.19.14",
