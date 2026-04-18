@@ -26,16 +26,16 @@ We'll build a toy chat app. A user types messages, an LLM responds. We start as 
 
 ### Source conventions
 
-We start writing **plain, old-style JavaScript** — no `let`/`const`, no arrow functions, no modules. ES3/ES5-ish. The one deliberate exception is async code: pain #1 walks through the XHR → Promises → async/await arc up front so everyone sees the history, and from that point on we use async/await everywhere — it's too painful to read deeply-nested callbacks for the whole project. Other modern syntax (let/const, arrows, classes, destructuring) gets introduced later via a transpile step (pain #6).
+We start writing **plain, old-style JavaScript** — no `let`/`const`, no arrow functions, no modules. ES3/ES5-ish. The one deliberate exception is async code: `docs/background.md` covers the XHR → Promises → async/await arc as background reading, and from that point on we use async/await everywhere — it's too painful to read deeply-nested callbacks for the whole project. Other modern syntax (let/const, arrows, classes, destructuring) gets introduced later via a transpile step (pain #5).
 
 ### Tooling language
 
-All the tools we build (bundler, type-stripper, dev server, source-map generator) are written in **zero-dependency Node**. We deliberately don't shell out to `esbuild` or `webpack` initially — we implement them ourselves in vanilla Node, the same language the real ecosystem is mostly built in. Pain #12 is where we swap our hand-rolled tool for a native one and feel the speedup.
+All the tools we build (bundler, type-stripper, dev server, source-map generator) are written in **zero-dependency Node**. We deliberately don't shell out to `esbuild` or `webpack` initially — we implement them ourselves in vanilla Node, the same language the real ecosystem is mostly built in. Pain #11 is where we swap our hand-rolled tool for a native one and feel the speedup.
 
 ### Stretch / optional
 
-- **Token-level streaming** (ReadableStream / async iterators) as an optional enhancement for LLM responses. Pairs naturally with pain #1 (async) as the "what comes after async/await" beat. Skip unless time allows.
-- **Triton-puzzle-style exercises** — concrete before/after perf targets the group races to hit (e.g., "get the settings page under 50KB"). Fit naturally at pains 9, 11, 13, 14.
+- **Token-level streaming** (ReadableStream / async iterators) as an optional enhancement for LLM responses. Pairs naturally with `docs/background.md` (async) as the "what comes after async/await" beat. Skip unless time allows.
+- **Triton-puzzle-style exercises** — concrete before/after perf targets the group races to hit (e.g., "get the settings page under 50KB"). Fit naturally at pains 8, 10, 12, 13.
 
 ### Exercise Thoughts: 
 - Is there a way we could get people to arrive on the right decision decision on their own? Maybe with some extra help, like reading some primary or secondary sources on the topic?

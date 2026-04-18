@@ -1,16 +1,14 @@
 ---
 outline: deep
-title: "9. Bundle sizes are huge"
+title: "9. Every save triggers a full rebuild"
 ---
 
-Naive bundling means visiting `/login` downloads your entire app including the admin dashboard and the checkout flow. Users on slow networks suffer.
+Early bundler dev loops: edit a file → rebuild the whole bundle → reload the page → lose your app state. Painful for anything non-trivial.
 
-**Why it matters historically:** motivated **tree-shaking** (drop unused exports — relies on ESM's static structure, which is a big reason ESM was designed to be static), **code-splitting** (lazy chunks loaded on demand), and **dynamic import** (`import()`). This is why Rollup pushed ESM-first: CJS can't be tree-shaken reliably because `require` is dynamic.
+**Why it matters historically:** motivated **watch mode**, then **incremental compilation**, then **Hot Module Replacement** (HMR) — swap a module in a running app without losing state. HMR is one of the killer features of modern dev servers and why Vite/webpack-dev-server feel magical.
 
-**Chat app step:** we add a Settings page (model picker, theme, API-key management, usage history). Our naive bundler produces one monolithic bundle that includes the settings form libs, a color picker, and the admin tools on *every* page — including the main chat route. Set budgets: chat page < 150KB, settings page < 50KB. We miss. Add (a) route-level code splitting — settings becomes a lazy chunk loaded on navigation — (b) tree-shaking, which requires switching import parsing to ESM's static `import`/`export` form so we can tell what's unused, and (c) a minification pass (identifier mangling + whitespace stripping) — and notice the failure modes of minification: code that reads `Function.prototype.name`, accesses properties by stringly-built keys, or relies on implicit globals all break quietly. Hit the budget.
+**Chat app step:** we're iterating on the message renderer constantly — fixing how code blocks display, tweaking spacing, testing edge cases. Every save → rebuild bundle → reload page → the conversation we were testing evaporates. We start sending the LLM "test" over and over to recreate state. Add a file watcher that rebuilds on save, then an HMR protocol (websocket + module swap) so the renderer reloads without blowing away the conversation in memory.
 
-**Tie to JS:** exactly why Rollup/ESM pushed static imports — you can't tree-shake our CJS bundler output because `require` is dynamic; you need ESM's static structure. A language-design decision with concrete downstream consequences. Minification adds a second teaching moment: "your code is valid JS, the output is valid JS, but they behave differently" → motivates source maps (pain #13).
-
-**Exercise idea (Triton-puzzle style):** "The settings page is 180KB. Get it under 50KB without removing features." Group races, measures with their own bundler output, iterates.
+**Tie to JS:** HMR's value is abstract until you lose your test conversation 40 times in one hour. Then it's obvious.
 
 ---

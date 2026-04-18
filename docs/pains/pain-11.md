@@ -1,14 +1,14 @@
 ---
 outline: deep
-title: "11. Cold-start dev servers are slow"
+title: "11. JS-in-JS tooling is slow"
 ---
 
-Webpack-era dev: start the server, wait 30 seconds while it bundles everything, *then* you can open localhost. For large apps, dev startup became minutes.
+Babel, webpack, Rollup are all written in JavaScript. Parsing JS in JS, for a large codebase, is inherently slow — you're running an interpreter on an interpreter.
 
-**Why it matters historically:** motivated Vite's architectural bet — **don't bundle in dev at all**. Serve native ESM to the browser, let it request modules on demand, only transform what's needed. Dev server starts instantly regardless of app size. This is *the* defining idea of modern JS tooling in the 2020s.
+**Why it matters historically:** motivated the native-language rewrites: **esbuild** (Go, ~2020), **SWC** (Rust, ~2019), **Turbopack** (Rust, 2022), **Rolldown** (Rust, 2024). The speedups were 10–100x, enough to reshape what tools people use. Vite uses esbuild in dev and is migrating its prod bundler from Rollup to Rolldown.
 
-**Chat app step:** the chat app + its deps have grown. Our bundler's cold start now takes several seconds before we can open localhost. Switch dev to a Vite-style model: a tiny Node HTTP server serves each module as a native-ESM response on demand, transforms only on request, no eager bundling. Cold start is near-instant regardless of project size.
+**Chat app step:** once we have per-page bundle budgets (pain #8), we iterate constantly — remove this import, add that dynamic chunk, rerun the bundler, recheck sizes. Our zero-dep Node bundler takes 3–5 seconds per rebuild; iteration becomes painful. Swap the bundle step to esbuild and watch it drop to ~100ms. Budget-tuning becomes interactive.
 
-**Tie to JS:** Vite's insight: don't do the work until the browser asks for it. Obvious in hindsight, non-obvious for a decade.
+**Tie to JS:** native speed isn't just "faster" — it changes what kinds of work are interactive. At 3s/rebuild you test changes serially; at 100ms you explore combinations. That shift is why esbuild/SWC/Rolldown reshaped the ecosystem.
 
 ---

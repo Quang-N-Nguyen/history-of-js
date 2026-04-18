@@ -1,6 +1,6 @@
 # Plan
 
-The same material is also published as a VitePress site: run `npm install` and `npm run docs:dev`, or browse `docs/` (overview: `docs/index.md`, pain pages: `docs/pains/pain-NN.md`, sessions: `docs/sessions.md`).
+The same material is also published as a VitePress site: run `npm install` and `npm run docs:dev`, or browse `docs/` (overview: `docs/index.md`, background reading on JS language/async: `docs/background.md`, pain pages: `docs/pains/pain-NN.md`, sessions: `docs/sessions.md`).
 
 ---
 
@@ -24,16 +24,16 @@ We'll build a toy chat app. A user types messages, an LLM responds. We start as 
 
 ### Source conventions
 
-We start writing **plain, old-style JavaScript** — no `let`/`const`, no arrow functions, no modules. ES3/ES5-ish. The one deliberate exception is async code: pain #1 walks through the XHR → Promises → async/await arc up front so everyone sees the history, and from that point on we use async/await everywhere — it's too painful to read deeply-nested callbacks for the whole project. Other modern syntax (let/const, arrows, classes, destructuring) gets introduced later via a transpile step (pain #6).
+We start writing **plain, old-style JavaScript** — no `let`/`const`, no arrow functions, no modules. ES3/ES5-ish. The one deliberate exception is async code: `docs/background.md` covers the XHR → Promises → async/await arc as background reading, and from that point on we use async/await everywhere — it's too painful to read deeply-nested callbacks for the whole project. Other modern syntax (let/const, arrows, classes, destructuring) gets introduced later via a transpile step (pain #5).
 
 ### Tooling language
 
-All the tools we build (bundler, type-stripper, dev server, source-map generator) are written in **zero-dependency Node**. We deliberately don't shell out to `esbuild` or `webpack` initially — we implement them ourselves in vanilla Node, the same language the real ecosystem is mostly built in. Pain #12 is where we swap our hand-rolled tool for a native one and feel the speedup.
+All the tools we build (bundler, type-stripper, dev server, source-map generator) are written in **zero-dependency Node**. We deliberately don't shell out to `esbuild` or `webpack` initially — we implement them ourselves in vanilla Node, the same language the real ecosystem is mostly built in. Pain #11 is where we swap our hand-rolled tool for a native one and feel the speedup.
 
 ### Stretch / optional
 
-- **Token-level streaming** (ReadableStream / async iterators) as an optional enhancement for LLM responses. Pairs naturally with pain #1 (async) as the "what comes after async/await" beat. Skip unless time allows.
-- **Triton-puzzle-style exercises** — concrete before/after perf targets the group races to hit (e.g., "get the settings page under 50KB"). Fit naturally at pains 9, 11, 13, 14.
+- **Token-level streaming** (ReadableStream / async iterators) as an optional enhancement for LLM responses. Pairs naturally with `docs/background.md` (async) as the "what comes after async/await" beat. Skip unless time allows.
+- **Triton-puzzle-style exercises** — concrete before/after perf targets the group races to hit (e.g., "get the settings page under 50KB"). Fit naturally at pains 8, 10, 12, 13.
 
 ### Exercise Thoughts: 
 - Is there a way we could get people to arrive on the right decision decision on their own? Maybe with some extra help, like reading some primary or secondary sources on the topic?
@@ -45,85 +45,7 @@ Pain points below are ordered roughly chronologically.
 
 ---
 
-## 1. No first-class async
-
-When JS launched in 1995, pages could do math and move things around — but talking to a server meant a full page reload. Microsoft fixed this in 1999 by shipping `XMLHttpRequest` in IE5 (as an `ActiveXObject`, of all things). Gmail made the pattern famous in 2004; "AJAX" was coined the year after. But the language itself had no native async primitive for another decade: Promises landed in ES2015, async/await in ES2017. That's a **22-year arc** from "there is no async" to "async is readable."
-
-**Why it matters historically:**
-Every browser API that waits on something — network, disk, timers, user input, streaming — is async. The callback → Promise → async/await progression is the single most important readability shift in JS's history. It also forced the language to formalize the **event loop** and **microtask queue**, which are the mental model every JS dev needs and the source of most "why didn't my UI update when I expected" bugs.
-
-**Chat app step:**
-We need to send a message to the proxy and display the reply. We write the request three ways, chronologically, to feel the arc — then use the modern form for the rest of the project.
-
-1. **XHR with callbacks (1999).** Nested `onload`/`onerror` handlers, no error propagation.
-2. **Promises (2015).** Chainable `.then`, errors bubble through `.catch`. Still callback-shaped.
-3. **async/await (2017).** Flat, linear, `try/catch` works normally.
-
-```js
-// 1. XHR — nesting compounds; two requests means two layers
-var xhr = new XMLHttpRequest();
-xhr.open('POST', '/chat');
-xhr.onload = function () {
-  if (xhr.status !== 200) { showError(xhr.statusText); return; }
-  var reply = JSON.parse(xhr.responseText);
-  render(reply);
-};
-xhr.onerror = function () { showError('request failed'); };
-xhr.send(JSON.stringify({ text: input }));
-```
-
-```js
-// 2. Promises — flat chain, single .catch
-fetch('/chat', { method: 'POST', body: JSON.stringify({ text: input }) })
-  .then(function (res) { return res.json(); })
-  .then(render)
-  .catch(showError);
-```
-
-```js
-// 3. async/await — looks synchronous, errors via try/catch
-async function send(input) {
-  try {
-    const res = await fetch('/chat', { method: 'POST', body: JSON.stringify({ text: input }) });
-    render(await res.json());
-  } catch (e) { showError(e); }
-}
-```
-
-After this section, **we use async/await for all network/async code for the rest of the project**, even while other old-school patterns (`var`, IIFEs, script tags) stick around until pain #6. History is the pedagogy; modern syntax is the daily practice.
-
-### The event loop and microtask queue
-
-JS is single-threaded — one call stack, one thing running at a time. When code `await`s or registers a callback, the function returns; the runtime picks up waiting work when the queue next drains.
-
-Two queues, same event loop:
-- **Task queue.** `setTimeout`, I/O callbacks, DOM events. Each task runs to completion before the loop moves on.
-- **Microtask queue.** `Promise.then`, `queueMicrotask`, `MutationObserver`. Drained **fully** after every task, before the next task starts.
-
-```js
-setTimeout(function () { console.log('timeout'); }, 0);
-Promise.resolve().then(function () { console.log('promise'); });
-console.log('sync');
-// Output order: sync, promise, timeout
-```
-
-Microtasks were formalized with Promises (2015) to guarantee `.then` runs before the browser repaints or handles another event. Historically the distinction barely mattered because nothing scheduled microtasks; now it's load-bearing. Common gotcha: a chain of `await`s can starve a paint you were expecting between them — every `.then` is a microtask, and microtasks drain to empty before the browser gets control back.
-
-### Exercises here:
-- Read the three implementations side by side. Rewrite each form into the next (XHR → Promise, Promise → async/await) until the translation feels mechanical.
-- Flatten a nested callback chain ("send a message → fetch suggestions based on the reply → render both") into async/await. Five levels of indentation collapse to five lines.
-- Puzzle: predict the log order for a tangle of `setTimeout(fn, 0)`, `queueMicrotask(fn)`, `Promise.resolve().then(fn)`, and synchronous `console.log`. Run and verify.
-- (Optional) A debounced input that fires a request on every keystroke has a race: an older request resolves after a newer one, and stale suggestions render. Fix with an "is-this-the-latest" check or `AbortController`.
-
-### References:
-- Jake Archibald, "Tasks, microtasks, queues and schedules" (2015) — the canonical explainer, with animations.
-- MDN: "The event loop."
-- Deno blog, "A brief history of JavaScript" — has the original IE5 `ActiveXObject` XHR snippet and the Gmail/AJAX timeline.
-- Ryan Dahl's original Node.js talk (2009) — the whole pitch is "non-blocking I/O is why Node exists."
-
----
-
-## 2. Code can't be split across files
+## 1. Code can't be split across files
 
 Early JS: one `<script>` tag, or several, all sharing one global namespace. Two files both define `handleClick` → one silently overwrites the other. There's no `import`, no `require`, no modules of any kind.
 
@@ -256,7 +178,7 @@ Opus 4.7
 
 ---
 
-## 3. No way to reuse other people's code reproducibly
+## 2. No way to reuse other people's code reproducibly
 
 Pre-2010: you wanted jQuery, you downloaded `jquery.min.js` and committed it to your repo. No version numbers, no dependency graph, no way to update. Transitive dependencies were manual.
 
@@ -343,7 +265,7 @@ Most of the time highest-matching succeeds on the first try; backtracking only k
 
 ### Integrating with the chat app (Opus 4.7):
 
-Our package manager writes `node_modules/`, but the browser can't `require` from there — that's pain #5. For now we lean on the convention of the era: each browser lib in our registry ships a `dist/<name>.js` that's an IIFE attaching to a global (marked → `window.marked`, sanitize → `window.Sanitize`). That's what UMD was designed for; our toy versions can be IIFE-only.
+Our package manager writes `node_modules/`, but the browser can't `require` from there — that's pain #4. For now we lean on the convention of the era: each browser lib in our registry ships a `dist/<name>.js` that's an IIFE attaching to a global (marked → `window.marked`, sanitize → `window.Sanitize`). That's what UMD was designed for; our toy versions can be IIFE-only.
 
 After `our-npm install marked sanitize`:
 
@@ -389,12 +311,12 @@ The IIFEs from section 2 just read the new globals:
 **The unsatisfying parts — and that's the point:**
 - We hand-write `<script>` load order for every transitive dep. (Stretch: have our package manager emit a `scripts.txt` in topological order — poor-man's bundler output, which is what Grunt/Gulp concat plugins did in 2012.)
 - Every lib adds another global to `window`; collisions are still possible.
-- The browser makes N requests — one per dep — paying a round-trip each (pain #8).
+- The browser makes N requests — one per dep — paying a round-trip each (pain #7).
 - We still can't `require('./sibling')` between our *own* files; internally we're stuck with the namespace pattern.
 
-Server side is a different story: the Node proxy `require`s straight from `node_modules/` via Node's built-in resolution, no bundler needed. That contrast — *server-side modules are easy, client-side isn't* — is the setup for pains #4 and #5.
+Server side is a different story: the Node proxy `require`s straight from `node_modules/` via Node's built-in resolution, no bundler needed. That contrast — *server-side modules are easy, client-side isn't* — is the setup for pains #3 and #4.
 
-**LSP note:** tsserver handles the syntax (old-style JS is still JS), but cross-file `window.APP.state.addMessage` won't autocomplete without a small `globals.d.ts` declaring `interface Window { APP: { state: ...; render: ... } }`, or JSDoc annotations on each IIFE's published object. Third-party libs are similar — `@types/marked` declares both the module export and the global, so `window.marked` autocompletes once types are installed. The module-less world doesn't give editors enough structure to help much; another authentic pain, and a natural setup for why pain #7 (TypeScript) pairs with pain #4 (modules).
+**LSP note:** tsserver handles the syntax (old-style JS is still JS), but cross-file `window.APP.state.addMessage` won't autocomplete without a small `globals.d.ts` declaring `interface Window { APP: { state: ...; render: ... } }`, or JSDoc annotations on each IIFE's published object. Third-party libs are similar — `@types/marked` declares both the module export and the global, so `window.marked` autocompletes once types are installed. The module-less world doesn't give editors enough structure to help much; another authentic pain, and a natural setup for why pain #6 (TypeScript) pairs with pain #3 (modules).
 
 ### References:
 - **PubGrub** — Natalie Weizenbaum, "PubGrub: Next-Generation Version Solving". The algorithm behind Dart's pub, Python's uv, and Poetry. Better error messages than naive backtracking because it records which constraints conflicted. 
@@ -415,7 +337,7 @@ Server side is a different story: the Node proxy `require`s straight from `node_
 
 ---
 
-## 4. Server-side JS needs real modules
+## 3. Server-side JS needs real modules
 
 Node (2009) wanted to write non-trivial server programs. Globals-and-script-tags doesn't fly when you have a 50-file backend. Node adopted **CommonJS**: `const x = require('./foo')`, synchronous, runtime-resolved, filesystem-based.
 
@@ -466,7 +388,7 @@ function resolve(spec, callerDir):
 - Why `require.cache` exists and why circular deps return *partially-initialized* exports — you hand back `module.exports` at the moment of re-entry, before the callee finishes. Classic CJS gotcha.
 - Why `module.exports = x` and `exports = x` differ. `exports` is just a local parameter pointing at `module.exports`; rebinding the parameter doesn't change the module object.
 - Why every Node file has `__filename`, `__dirname`, `module`, `exports`, `require` without importing anything: they're the wrapper function's parameters.
-- Why Node's module system is synchronous and filesystem-bound — which is exactly the thing that breaks in the browser and forces bundlers (pain #5).
+- Why Node's module system is synchronous and filesystem-bound — which is exactly the thing that breaks in the browser and forces bundlers (pain #4).
 
 **Exercises:**
 - Implement phase 1 against hand-rolled absolute paths. Get the chat proxy split and loading with your own `require`.
@@ -479,13 +401,13 @@ function resolve(spec, callerDir):
 - [`require` source in Node](https://github.com/nodejs/node/blob/main/lib/internal/modules/cjs/loader.js) — 2000+ lines, but the core mechanism is recognizable.
 - Ryan Dahl, "10 things I regret about Node" (2018) — item #7 is about module resolution. Good "here's why this design is regretted now" counterpoint.
 
-**Tie to JS:** the Node / CJS origin story verbatim, with enough internals that CJS stops being a black box. Because we're building a server and a client at the same time, the contrast with pain #5 is vivid: the exact loader we just wrote *cannot* run in the browser — `readFileSync` doesn't exist, and even async `fetch` can't be used synchronously inside `require(...)` evaluation. That impossibility is what bundlers fix.
+**Tie to JS:** the Node / CJS origin story verbatim, with enough internals that CJS stops being a black box. Because we're building a server and a client at the same time, the contrast with pain #4 is vivid: the exact loader we just wrote *cannot* run in the browser — `readFileSync` doesn't exist, and even async `fetch` can't be used synchronously inside `require(...)` evaluation. That impossibility is what bundlers fix.
 
 ### Caden Todos here: 
 
 ---
 
-## 5. Browser can't do synchronous `require`
+## 4. Browser can't do synchronous `require`
 
 CJS assumes you can block on a local filesystem read. Browsers can't — fetching a module over the network is async. You can't evaluate `require('./foo')` inline because `foo` hasn't arrived yet.
 
@@ -495,9 +417,9 @@ CJS assumes you can block on a local filesystem read. Browsers can't — fetchin
 
 ### Plan: toy bundler, Browserify-shaped (Opus 4.7)
 
-The key insight: do pain #4's resolution work *at build time*, not at runtime. The runtime in the browser is then tiny — basically pain #4's loader minus the filesystem.
+The key insight: do pain #3's resolution work *at build time*, not at runtime. The runtime in the browser is then tiny — basically pain #3's loader minus the filesystem.
 
-Historical framing: this is **Browserify circa 2011** — the first bundler. Webpack (2012) added loaders (CSS, images), a plugin system, and sophisticated code-splitting, and became dominant by ~2016 with React/CRA. Our toy grows webpack-shaped as we extend it in pain #10 (HMR) and pain #9 (code splitting).
+Historical framing: this is **Browserify circa 2011** — the first bundler. Webpack (2012) added loaders (CSS, images), a plugin system, and sophisticated code-splitting, and became dominant by ~2016 with React/CRA. Our toy grows webpack-shaped as we extend it in pain #9 (HMR) and pain #8 (code splitting).
 
 **Pipeline (~150 lines, vanilla Node):**
 
@@ -515,7 +437,7 @@ function bundle(entryPath):
     source = readFileSync(abs)
     deps = {}
     for spec in findRequireCalls(source):       # regex for v1, AST for v2
-      depAbs = resolve(spec, dirname(abs))      # reuse pain #4's resolver
+      depAbs = resolve(spec, dirname(abs))      # reuse pain #3's resolver
       queue.push(depAbs)
       deps[spec] = byPath[depAbs] ?? "pending"  # fix up after queue drains
     modules[id] = { absPath: abs, code: source, deps }
@@ -546,19 +468,19 @@ function emit(modules, entryId):
 })();
 ```
 
-Compare to pain #4's loader: identical shape, except `modules[id]` is a table baked into the bundle instead of a file read off disk. Bundling is just CJS-at-build-time.
+Compare to pain #3's loader: identical shape, except `modules[id]` is a table baked into the bundle instead of a file read off disk. Bundling is just CJS-at-build-time.
 
 **What this reveals:**
 - Every bundler output has "module IDs" — they're the artifact of baking resolution into the bundle.
-- Why bundling survived ESM shipping natively (pain #8): still one request vs. N.
-- Why tree-shaking is hard with CJS (pain #9): `require(x)` where `x` is dynamic can't be statically known. ESM's static `import` structure is the fix.
+- Why bundling survived ESM shipping natively (pain #7): still one request vs. N.
+- Why tree-shaking is hard with CJS (pain #8): `require(x)` where `x` is dynamic can't be statically known. ESM's static `import` structure is the fix.
 - Why the bundle's runtime is tiny compared to the build logic — the hard work is the graph walk, the runtime is just a lookup table.
 
 **Exercises:**
 - Implement the regex-based version. Bundle a three-file chat client, ship as one `<script>`.
 - Hit the regex's limits: a `require` inside a string literal or comment gets matched. Swap to Acorn-based detection of actual `CallExpression` nodes named `require`.
-- Puzzle: two modules that `require` each other (circular dep). What does the browser runtime return? Verify it matches the Node-CJS behavior from pain #4.
-- Stretch: add a sourcemap emit (just enough to map bundle lines back to source file + line). Pain #13 generalizes this.
+- Puzzle: two modules that `require` each other (circular dep). What does the browser runtime return? Verify it matches the Node-CJS behavior from pain #3.
+- Stretch: add a sourcemap emit (just enough to map bundle lines back to source file + line). Pain #12 generalizes this.
 
 ### References:
 - [Browserify source](https://github.com/browserify/browserify) — the original, ~1k lines for the core.
@@ -570,13 +492,13 @@ Compare to pain #4's loader: identical shape, except `modules[id]` is a table ba
 
 ---
 
-## 6. Browsers don't implement new JS fast enough
+## 5. Browsers don't implement new JS fast enough
 
 ES6 (2015) shipped classes, arrow functions, `let`/`const`, destructuring. Developers wanted to use them *immediately*. IE11 and older browsers didn't support them and wouldn't for years.
 
 **Why it matters historically:** motivated **transpilers**. Babel (2014, originally "6to5") compiled ES6 → ES5 so you could write modern code and ship it everywhere. This established the pattern that the JS you *write* is not the JS that *runs*. Every tool downstream (TypeScript, JSX, Svelte compilation) inherits this pattern.
 
-**Chat app step:** we've been writing `var` everywhere, IIFEs, no arrow functions (async/await is the one thing we kept modern, per pain #1). Tiring. We want the full modern toolkit — `let`/`const`, arrows, classes, template strings, destructuring. We add a **transpile step** to our pipeline: write modern source → our tool rewrites to ES5 → bundler concatenates → ship.
+**Chat app step:** we've been writing `var` everywhere, IIFEs, no arrow functions (async/await is the one thing we kept modern, per `docs/background.md`). Tiring. We want the full modern toolkit — `let`/`const`, arrows, classes, template strings, destructuring. We add a **transpile step** to our pipeline: write modern source → our tool rewrites to ES5 → bundler concatenates → ship.
 
 ### Plan: toy transpiler (Opus 4.7)
 
@@ -586,7 +508,7 @@ ES6 (2015) shipped classes, arrow functions, `let`/`const`, destructuring. Devel
 
 **Three transforms, hardest-last:**
 
-**(1) TS type stripping (~50 lines).** Use `acorn-typescript` (or `@babel/parser`). Walk the AST, delete every `TypeAnnotation`, `TSInterfaceDeclaration`, `TSTypeAliasDeclaration`, `TSAsExpression`, `ImportDeclaration` with `importKind: "type"`, etc. Print what's left. This is exactly what [`ts-blank-space`](https://github.com/bloomberg/ts-blank-space) (Bloomberg, 2024) does in ~700 lines — our toy is the 50-line version. This transform alone gets us TS support for pain #7.
+**(1) TS type stripping (~50 lines).** Use `acorn-typescript` (or `@babel/parser`). Walk the AST, delete every `TypeAnnotation`, `TSInterfaceDeclaration`, `TSTypeAliasDeclaration`, `TSAsExpression`, `ImportDeclaration` with `importKind: "type"`, etc. Print what's left. This is exactly what [`ts-blank-space`](https://github.com/bloomberg/ts-blank-space) (Bloomberg, 2024) does in ~700 lines — our toy is the 50-line version. This transform alone gets us TS support for pain #6.
 
 **(2) Arrow fn → function expression (~40 lines).** The interesting `this`-binding case.
 
@@ -638,7 +560,7 @@ function runGenerator(gen) {
 Every `await` becomes a `yield`. The runner pumps the generator: call `next()`, get a promise, wait for it, resume with the resolved value. This is what Babel did for years (2015-2017) before browsers shipped async/await. Transform logic: walk the AST, find `async function`, convert to generator, wrap body in `runGenerator(function* () { ... })`, rewrite every `AwaitExpression` to `YieldExpression`. After writing this, you deeply understand what async/await *is*.
 
 **Recommended path:**
-- Do (1) first — practical, short, directly supports pain #7 (TS).
+- Do (1) first — practical, short, directly supports pain #6 (TS).
 - Do (2) second — teaches transform mechanics + `this`-binding.
 - Do (3) as a stretch puzzle — challenging but the most rewarding.
 
@@ -646,9 +568,9 @@ Later: pipe through `esbuild --target=es5` for full coverage of the long tail (d
 
 **What this reveals:**
 - Transpilers are three stages: parse → transform → print. Same as any compiler.
-- Why TS is strip-only and deliberately unsound (pain #7): the transform is trivial, and runtime behavior is unchanged — deletion can't introduce bugs.
+- Why TS is strip-only and deliberately unsound (pain #6): the transform is trivial, and runtime behavior is unchanged — deletion can't introduce bugs.
 - Why async/await isn't "just sugar" over Promises — the transform uses generators under the hood, which are themselves non-trivial. Real language-level support buys you efficiency the transpile-down version can't match.
-- Why source maps (pain #13) are essential once you have transforms — output positions don't match input positions anymore.
+- Why source maps (pain #12) are essential once you have transforms — output positions don't match input positions anymore.
 
 **Exercises:**
 - Type-stripping pass. Run it on a TS-flavored version of the chat app; verify the output still executes.
@@ -668,7 +590,7 @@ Later: pipe through `esbuild --target=es5` for full coverage of the long tail (d
 
 ---
 
-## 7. JS's dynamic typing hurts at scale
+## 6. JS's dynamic typing hurts at scale
 
 Large codebases: refactors break silently, IDE autocomplete is guessing, `undefined is not a function` at runtime. Tolerable at 1k LoC, miserable at 500k.
 
@@ -680,7 +602,7 @@ Large codebases: refactors break silently, IDE autocomplete is guessing, `undefi
 
 ---
 
-## 8. Sending 400 files to the browser is slow
+## 7. Sending 400 files to the browser is slow
 
 HTTP/1.1 limits concurrent requests. Each request has overhead. A naive "one file per module" browser loader means a waterfall of hundreds of requests before your app boots.
 
@@ -692,7 +614,7 @@ HTTP/1.1 limits concurrent requests. Each request has overhead. A naive "one fil
 
 ---
 
-## 9. Bundle sizes are huge
+## 8. Bundle sizes are huge
 
 Naive bundling means visiting `/login` downloads your entire app including the admin dashboard and the checkout flow. Users on slow networks suffer.
 
@@ -700,13 +622,13 @@ Naive bundling means visiting `/login` downloads your entire app including the a
 
 **Chat app step:** we add a Settings page (model picker, theme, API-key management, usage history). Our naive bundler produces one monolithic bundle that includes the settings form libs, a color picker, and the admin tools on *every* page — including the main chat route. Set budgets: chat page < 150KB, settings page < 50KB. We miss. Add (a) route-level code splitting — settings becomes a lazy chunk loaded on navigation — (b) tree-shaking, which requires switching import parsing to ESM's static `import`/`export` form so we can tell what's unused, and (c) a minification pass (identifier mangling + whitespace stripping) — and notice the failure modes of minification: code that reads `Function.prototype.name`, accesses properties by stringly-built keys, or relies on implicit globals all break quietly. Hit the budget.
 
-**Tie to JS:** exactly why Rollup/ESM pushed static imports — you can't tree-shake our CJS bundler output because `require` is dynamic; you need ESM's static structure. A language-design decision with concrete downstream consequences. Minification adds a second teaching moment: "your code is valid JS, the output is valid JS, but they behave differently" → motivates source maps (pain #13).
+**Tie to JS:** exactly why Rollup/ESM pushed static imports — you can't tree-shake our CJS bundler output because `require` is dynamic; you need ESM's static structure. A language-design decision with concrete downstream consequences. Minification adds a second teaching moment: "your code is valid JS, the output is valid JS, but they behave differently" → motivates source maps (pain #12).
 
 **Exercise idea (Triton-puzzle style):** "The settings page is 180KB. Get it under 50KB without removing features." Group races, measures with their own bundler output, iterates.
 
 ---
 
-## 10. Every save triggers a full rebuild
+## 9. Every save triggers a full rebuild
 
 Early bundler dev loops: edit a file → rebuild the whole bundle → reload the page → lose your app state. Painful for anything non-trivial.
 
@@ -718,7 +640,7 @@ Early bundler dev loops: edit a file → rebuild the whole bundle → reload the
 
 ---
 
-## 11. Cold-start dev servers are slow
+## 10. Cold-start dev servers are slow
 
 Webpack-era dev: start the server, wait 30 seconds while it bundles everything, *then* you can open localhost. For large apps, dev startup became minutes.
 
@@ -730,19 +652,19 @@ Webpack-era dev: start the server, wait 30 seconds while it bundles everything, 
 
 ---
 
-## 12. JS-in-JS tooling is slow
+## 11. JS-in-JS tooling is slow
 
 Babel, webpack, Rollup are all written in JavaScript. Parsing JS in JS, for a large codebase, is inherently slow — you're running an interpreter on an interpreter.
 
 **Why it matters historically:** motivated the native-language rewrites: **esbuild** (Go, ~2020), **SWC** (Rust, ~2019), **Turbopack** (Rust, 2022), **Rolldown** (Rust, 2024). The speedups were 10–100x, enough to reshape what tools people use. Vite uses esbuild in dev and is migrating its prod bundler from Rollup to Rolldown.
 
-**Chat app step:** once we have per-page bundle budgets (pain #9), we iterate constantly — remove this import, add that dynamic chunk, rerun the bundler, recheck sizes. Our zero-dep Node bundler takes 3–5 seconds per rebuild; iteration becomes painful. Swap the bundle step to esbuild and watch it drop to ~100ms. Budget-tuning becomes interactive.
+**Chat app step:** once we have per-page bundle budgets (pain #8), we iterate constantly — remove this import, add that dynamic chunk, rerun the bundler, recheck sizes. Our zero-dep Node bundler takes 3–5 seconds per rebuild; iteration becomes painful. Swap the bundle step to esbuild and watch it drop to ~100ms. Budget-tuning becomes interactive.
 
 **Tie to JS:** native speed isn't just "faster" — it changes what kinds of work are interactive. At 3s/rebuild you test changes serially; at 100ms you explore combinations. That shift is why esbuild/SWC/Rolldown reshaped the ecosystem.
 
 ---
 
-## 13. Errors in transpiled/bundled code are unreadable
+## 12. Errors in transpiled/bundled code are unreadable
 
 Stack trace says `bundle.min.js:1:48372`. The original source was `src/components/Checkout.tsx:42`. You can't debug what you can't read.
 
@@ -754,7 +676,7 @@ Stack trace says `bundle.min.js:1:48372`. The original source was `src/component
 
 ---
 
-## 14. Imperative DOM updates don't scale
+## 13. Imperative DOM updates don't scale
 
 jQuery-era code: a click handler reads state from the DOM, computes new state, writes it back to the DOM. With many interacting pieces of state, you get a spaghetti of "if this element changes, remember to update those three other elements." Bugs are inevitable.
 
@@ -768,7 +690,7 @@ jQuery-era code: a click handler reads state from the DOM, computes new state, w
 
 ---
 
-## 15. Node-isms don't run on the edge or in the browser
+## 14. Node-isms don't run on the edge or in the browser
 
 Node has `fs`, `path`, `process`, `Buffer`, a specific module resolution algorithm, CJS by default. None of this exists in Cloudflare Workers, Deno, or the browser. Code written for Node doesn't port.
 
@@ -780,7 +702,7 @@ Node has `fs`, `path`, `process`, `Buffer`, a specific module resolution algorit
 
 ---
 
-## 16. `node_modules` is a disaster
+## 15. `node_modules` is a disaster
 
 400MB on disk, 30,000+ files, slow to install, slow to traverse, duplicated across every project on your machine. npm's install algorithm was designed in 2010 and the ecosystem has outgrown it.
 
@@ -792,7 +714,7 @@ Node has `fs`, `path`, `process`, `Buffer`, a specific module resolution algorit
 
 ---
 
-## 17. CJS and ESM don't interop cleanly
+## 16. CJS and ESM don't interop cleanly
 
 Node supports both. Import a CJS package from an ESM file → sometimes works, sometimes gives you `{ default: actualExport }`, sometimes errors. Libraries that ship both have a "dual-package hazard": two copies of the same module, two separate identities.
 
@@ -804,13 +726,13 @@ Node supports both. Import a CJS package from an ESM file → sometimes works, s
 
 ---
 
-## 18. Configuration explosion
+## 17. Configuration explosion
 
 A modern project has `package.json`, `tsconfig.json`, `vite.config.ts`, `eslint.config.js`, `.prettierrc`, `postcss.config.js`, `.browserslistrc`, `.npmrc`, sometimes more. Each has its own schema, docs, and gotchas. Onboarding a new developer is mostly explaining config.
 
 **Why it matters historically:** motivated **zero-config tools** (Parcel's original pitch) and **opinionated frameworks** (Next.js, Remix, SvelteKit, Astro) that hide the config behind a single `framework.config.js`. The trade is flexibility for velocity — and most teams are taking it.
 
-**Chat app step:** retrospective. Count every config we've accumulated: `package.json`, `tsconfig.json`, bundler config, dev-server config, `.eslintrc`, `.prettierrc`, `wrangler.toml` for the Worker, `pnpm-workspace.yaml` for the packages split in pain #17. Then: try rebuilding the chat app on SvelteKit or Next. Most configs collapse into one `framework.config.js`. Discuss what's gained (velocity, consistency) and lost (flexibility, transparency).
+**Chat app step:** retrospective. Count every config we've accumulated: `package.json`, `tsconfig.json`, bundler config, dev-server config, `.eslintrc`, `.prettierrc`, `wrangler.toml` for the Worker, `pnpm-workspace.yaml` for the packages split in pain #16. Then: try rebuilding the chat app on SvelteKit or Next. Most configs collapse into one `framework.config.js`. Discuss what's gained (velocity, consistency) and lost (flexibility, transparency).
 
 **Tie to JS:** only lands *after* having felt each config's pain. "Frameworks hide this" is powerful because you paid the cost of every layer they're hiding.
 
@@ -820,11 +742,11 @@ A modern project has `package.json`, `tsconfig.json`, `vite.config.ts`, `eslint.
 
 Probably too many for three 2-hour sessions. A rough grouping:
 
-- **Session 1 — Async, ship the chat app, feel the module pain:** pains 1, 2, 3, 4, 5, 8. Walk the XHR → Promises → async/await arc + event loop. Build chat app v1 (single HTML + script tag, async/await fetch through a Node proxy). Split into multiple files and feel the globals collision. Install `marked` (via our toy package manager). Split the proxy across files with CJS. Write the zero-dep Node bundler. End with a multi-file chat app running from one bundled `<script>`.
-- **Session 2 — Tooling layer:** pains 6, 7, 9, 10, 11, 12, 13. Transpile step (modern JS → ES5), port to TS, route-level code splitting + tree-shaking + minification against per-page bundle budgets, dev server with HMR, Vite-style dev, swap to esbuild for speed, source maps. Biggest session — probably needs trimming.
-- **Session 3 — The modern stack:** pains 14, 15, 16, 17, 18. Build a tiny reactive framework (+ optional V8 puzzle) and refactor the UI on top of it, deploy the proxy to Cloudflare Workers, migrate to pnpm, extract + publish core as a dual CJS/ESM package, retrospective on configs.
+- **Session 1 — Async, ship the chat app, feel the module pain:** background reading (`docs/background.md`) for the XHR → Promises → async/await arc + event loop; pains 1, 2, 3, 4, 7. Build chat app v1 (single HTML + script tag, async/await fetch through a Node proxy). Split into multiple files and feel the globals collision. Install `marked` (via our toy package manager). Split the proxy across files with CJS. Write the zero-dep Node bundler. End with a multi-file chat app running from one bundled `<script>`.
+- **Session 2 — Tooling layer:** pains 5, 6, 8, 9, 10, 11, 12. Transpile step (modern JS → ES5), port to TS, route-level code splitting + tree-shaking + minification against per-page bundle budgets, dev server with HMR, Vite-style dev, swap to esbuild for speed, source maps. Biggest session — probably needs trimming.
+- **Session 3 — The modern stack:** pains 13, 14, 15, 16, 17. Build a tiny reactive framework (+ optional V8 puzzle) and refactor the UI on top of it, deploy the proxy to Cloudflare Workers, migrate to pnpm, extract + publish core as a dual CJS/ESM package, retrospective on configs.
 
 Open questions:
-- Pain 14 (declarative UI / signals) is huge and probably deserves its own session. Could push to a 4th week or leave frameworks as "further reading."
-- Session 2 is overloaded. Candidates to lighten: pain 12 can be a ~20min demo (swap bundler step → time it) rather than a full rebuild; pain 9 can focus on the settings-page budget exercise rather than also doing tree-shaking from scratch.
+- Pain 13 (declarative UI / signals) is huge and probably deserves its own session. Could push to a 4th week or leave frameworks as "further reading."
+- Session 2 is overloaded. Candidates to lighten: pain 11 can be a ~20min demo (swap bundler step → time it) rather than a full rebuild; pain 8 can focus on the settings-page budget exercise rather than also doing tree-shaking from scratch.
 - Token-level streaming (ReadableStream / async iterators) is held as optional — good "what comes after async/await" beat if session 1 has room.

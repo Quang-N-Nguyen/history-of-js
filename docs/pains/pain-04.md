@@ -1,72 +1,87 @@
 ---
 outline: deep
-title: "4. Server-side JS needs real modules"
+title: "4. Browser can't do synchronous `require`"
 ---
 
-Node (2009) wanted to write non-trivial server programs. Globals-and-script-tags doesn't fly when you have a 50-file backend. Node adopted **CommonJS**: `const x = require('./foo')`, synchronous, runtime-resolved, filesystem-based.
+CJS assumes you can block on a local filesystem read. Browsers can't — fetching a module over the network is async. You can't evaluate `require('./foo')` inline because `foo` hasn't arrived yet.
 
-**Why it matters historically:** CJS became the lingua franca of server JS for a decade. Every npm package shipped CJS. The entire ecosystem's "default" was CJS until ESM started winning around 2020 — and we're still cleaning up the mess.
+**Why it matters historically:** motivated AMD (`define([...deps], factory)`) as an async alternative, UMD as the "works in both" wrapper, and — critically — **bundlers** as a workaround: pre-compile the whole dep graph into a single file so the browser never has to do runtime resolution. Browserify (2011) and webpack (2012) were born here.
 
-**Chat app step:** the proxy was one `server.js`. It grows — routes for chat completion, model list, usage stats; middleware for rate limiting and logging. We split it across `server.js`, `routes/chat.js`, `routes/models.js`, `middleware/ratelimit.js`, each with `require('./routes/chat')` etc. But rather than just using Node's built-in `require`, we **build our own** first — then use ours to load the split proxy.
+**Chat app step:** we love how the proxy splits across files. We want the same on the client — `require('./render')`, `require('./api')`. The browser can't do `require`. We write a ~150-line zero-dep Node bundler and ship the chat app as one bundled `<script>`.
 
-### Plan: toy CJS loader (Opus 4.7)
+### Plan: toy bundler, Browserify-shaped (Opus 4.7)
 
-CJS's runtime mechanism is genuinely ~30 lines. The full loader with resolution is ~100. We build both, in two phases.
+The key insight: do pain #3's resolution work *at build time*, not at runtime. The runtime in the browser is then tiny — basically pain #3's loader minus the filesystem.
 
-**Phase 1 — the mechanism (~30 lines).** Given an absolute path, load and run a module:
+Historical framing: this is **Browserify circa 2011** — the first bundler. Webpack (2012) added loaders (CSS, images), a plugin system, and sophisticated code-splitting, and became dominant by ~2016 with React/CRA. Our toy grows webpack-shaped as we extend it in pain #9 (HMR) and pain #8 (code splitting).
 
-```
-function require(absPath):
-  if cache[absPath]: return cache[absPath].exports
-  source = readFileSync(absPath)
-  module = { exports: {} }
-  cache[absPath] = module                 # cache BEFORE running — supports circular deps
-  wrapped = `(function (module, exports, require, __filename, __dirname) {
-    ${source}
-  })`
-  fn = eval(wrapped)                      # or new Function(...) — avoids outer-scope leak
-  fn(module, module.exports, scopedRequire(absPath), absPath, dirname(absPath))
-  return module.exports
-```
-
-`scopedRequire(callerPath)` returns a function that resolves relative specifiers against `callerPath`'s directory — so `require('./foo')` inside `routes/chat.js` means `routes/foo.js`.
-
-**Phase 2 — resolution (~60 lines).** Given a specifier string and the caller's directory, find the absolute file path:
+**Pipeline (~150 lines, vanilla Node):**
 
 ```
-function resolve(spec, callerDir):
-  if spec starts with "./" or "../":
-    base = join(callerDir, spec)
-    try: base, base + ".js", base + "/index.js", base + "/package.json".main
-  else:
-    # bare specifier: walk up looking in node_modules
-    dir = callerDir
-    while dir != "/":
-      candidate = join(dir, "node_modules", spec)
-      try: candidate, candidate + ".js", candidate + "/index.js", candidate/package.json".main
-      dir = parent(dir)
-  throw "Cannot find module " + spec
+function bundle(entryPath):
+  modules = {}          # { id: { absPath, code, deps: { spec: id } } }
+  byPath = {}           # { absPath: id } — dedupe
+  nextId = 0
+  queue = [entryPath]
+  while queue not empty:
+    abs = queue.pop()
+    if abs in byPath: continue
+    id = nextId++
+    byPath[abs] = id
+    source = readFileSync(abs)
+    deps = {}
+    for spec in findRequireCalls(source):       # regex for v1, AST for v2
+      depAbs = resolve(spec, dirname(abs))      # reuse pain #3's resolver
+      queue.push(depAbs)
+      deps[spec] = byPath[depAbs] ?? "pending"  # fix up after queue drains
+    modules[id] = { absPath: abs, code: source, deps }
+  fixUpPendingIds(modules, byPath)
+  return emit(modules, byPath[entryPath])
+
+function emit(modules, entryId):
+  # rewrite each module: require("./foo") → require(3)
+  for each module in modules:
+    module.code = replaceRequireSpecsWithIds(module.code, module.deps)
+  return `${runtime}
+    const modules = ${serializeModuleTable(modules)};
+    require(${entryId});`
 ```
+
+**The runtime (~15 lines, ships in the bundle):**
+
+```js
+(function () {
+  var cache = {};
+  function require(id) {
+    if (cache[id]) return cache[id].exports;
+    var module = { exports: {} };
+    cache[id] = module;
+    modules[id](module, module.exports, require);
+    return module.exports;
+  }
+})();
+```
+
+Compare to pain #3's loader: identical shape, except `modules[id]` is a table baked into the bundle instead of a file read off disk. Bundling is just CJS-at-build-time.
 
 **What this reveals:**
-- Why `require.cache` exists and why circular deps return *partially-initialized* exports — you hand back `module.exports` at the moment of re-entry, before the callee finishes. Classic CJS gotcha.
-- Why `module.exports = x` and `exports = x` differ. `exports` is just a local parameter pointing at `module.exports`; rebinding the parameter doesn't change the module object.
-- Why every Node file has `__filename`, `__dirname`, `module`, `exports`, `require` without importing anything: they're the wrapper function's parameters.
-- Why Node's module system is synchronous and filesystem-bound — which is exactly the thing that breaks in the browser and forces bundlers (pain #5).
+- Every bundler output has "module IDs" — they're the artifact of baking resolution into the bundle.
+- Why bundling survived ESM shipping natively (pain #7): still one request vs. N.
+- Why tree-shaking is hard with CJS (pain #8): `require(x)` where `x` is dynamic can't be statically known. ESM's static `import` structure is the fix.
+- Why the bundle's runtime is tiny compared to the build logic — the hard work is the graph walk, the runtime is just a lookup table.
 
 **Exercises:**
-- Implement phase 1 against hand-rolled absolute paths. Get the chat proxy split and loading with your own `require`.
-- Implement phase 2. Now `require('marked')` from the proxy walks up to `node_modules/marked/package.json` and loads its `main`.
-- Puzzle: write two files that `require` each other and print intermediate `module.exports`. Predict and verify what each side sees.
-- Stretch: support `.json` (parse instead of eval) and a third-party `.node` addon noop.
+- Implement the regex-based version. Bundle a three-file chat client, ship as one `<script>`.
+- Hit the regex's limits: a `require` inside a string literal or comment gets matched. Swap to Acorn-based detection of actual `CallExpression` nodes named `require`.
+- Puzzle: two modules that `require` each other (circular dep). What does the browser runtime return? Verify it matches the Node-CJS behavior from pain #3.
+- Stretch: add a sourcemap emit (just enough to map bundle lines back to source file + line). Pain #12 generalizes this.
 
 ### References:
-- Node.js docs, "Modules: CommonJS modules" — the spec in plain English.
-- [`require` source in Node](https://github.com/nodejs/node/blob/main/lib/internal/modules/cjs/loader.js) — 2000+ lines, but the core mechanism is recognizable.
-- Ryan Dahl, "10 things I regret about Node" (2018) — item #7 is about module resolution. Good "here's why this design is regretted now" counterpoint.
+- [Browserify source](https://github.com/browserify/browserify) — the original, ~1k lines for the core.
+- James Halliday's [browserify handbook](https://github.com/browserify/browserify-handbook) (2014) — the design philosophy.
+- [minipack](https://github.com/ronami/minipack) — an existing ~200-line educational bundler. Good to read after writing your own.
+- Webpack's [concepts docs](https://webpack.js.org/concepts/) — see what our toy is *missing* (loaders, plugins, chunks).
 
-**Tie to JS:** the Node / CJS origin story verbatim, with enough internals that CJS stops being a black box. Because we're building a server and a client at the same time, the contrast with pain #5 is vivid: the exact loader we just wrote *cannot* run in the browser — `readFileSync` doesn't exist, and even async `fetch` can't be used synchronously inside `require(...)` evaluation. That impossibility is what bundlers fix.
-
-### Caden Todos here: 
+**Tie to JS:** Browserify in miniature. Building it ourselves makes bundlers feel like a *natural* solution rather than a mysterious config layer — they exist because the browser can't do what Node can. And once you've written one, webpack stops being magic: it's the same core graph walk + module table, with a loader pipeline bolted on top.
 
 ---

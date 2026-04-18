@@ -1,14 +1,14 @@
 ---
 outline: deep
-title: "12. JS-in-JS tooling is slow"
+title: "12. Errors in transpiled/bundled code are unreadable"
 ---
 
-Babel, webpack, Rollup are all written in JavaScript. Parsing JS in JS, for a large codebase, is inherently slow — you're running an interpreter on an interpreter.
+Stack trace says `bundle.min.js:1:48372`. The original source was `src/components/Checkout.tsx:42`. You can't debug what you can't read.
 
-**Why it matters historically:** motivated the native-language rewrites: **esbuild** (Go, ~2020), **SWC** (Rust, ~2019), **Turbopack** (Rust, 2022), **Rolldown** (Rust, 2024). The speedups were 10–100x, enough to reshape what tools people use. Vite uses esbuild in dev and is migrating its prod bundler from Rollup to Rolldown.
+**Why it matters historically:** motivated **source maps** — a JSON file that maps positions in the output back to the original source. Every transpiler and bundler generates them. Browsers and Node both consume them. Without source maps, the "transpile everything" ecosystem would be unusable in production.
 
-**Chat app step:** once we have per-page bundle budgets (pain #9), we iterate constantly — remove this import, add that dynamic chunk, rerun the bundler, recheck sizes. Our zero-dep Node bundler takes 3–5 seconds per rebuild; iteration becomes painful. Swap the bundle step to esbuild and watch it drop to ~100ms. Budget-tuning becomes interactive.
+**Chat app step:** someone reports "the chat crashes when I click the retry button on a failed message" and pastes a screenshot: `Uncaught TypeError at bundle.min.js:1:48372`. Useless. Teach our bundler + transpiler to track `{ file, line, col }` positions from each source file through every transform and into the final bundle. Emit a `.map` file alongside; serve it. The browser's devtools now surface the error at `render.js:43` — the actual bug site.
 
-**Tie to JS:** native speed isn't just "faster" — it changes what kinds of work are interactive. At 3s/rebuild you test changes serially; at 100ms you explore combinations. That shift is why esbuild/SWC/Rolldown reshaped the ecosystem.
+**Tie to JS:** source maps feel like plumbing until you see them light up. Once errors jump to the right file and line, the group understands why *every* transpiler and bundler in the JS world ships them.
 
 ---

@@ -1,107 +1,129 @@
 ---
 outline: deep
-title: "2. Code can't be split across files"
+title: "2. No way to reuse other people's code reproducibly"
 ---
 
-Early JS: one `<script>` tag, or several, all sharing one global namespace. Two files both define `handleClick` → one silently overwrites the other. There's no `import`, no `require`, no modules of any kind.
+Pre-2010: you wanted jQuery, you downloaded `jquery.min.js` and committed it to your repo. No version numbers, no dependency graph, no way to update. Transitive dependencies were manual.
 
-**Why this mattered**: 
-Forced the IIFE pattern and "namespace object" pattern as poor-man's modules. Modern module systems grew out of these patterns.
-- **IIFE** (Immediately Invoked Function Expression) — `(function(){ ... })()`. A function you define and call in the same expression. Everything declared inside is scoped to the function, not leaked to `window`.
-- **Namespace object pattern** — instead of 30 globals (`addMessage`, `renderAll`, `sendToApi`, ...), you make *one* global (`APP`) and hang everything off it: `APP.state.addMessage(...)`, `APP.render.renderAll()`. Poor-man's modules.
-
+**Why it matters historically:** 
+Motivated npm (2010, originally for Node), later Bower (for browser, now dead), and eventually the idea that a JS project has a *manifest* (`package.json`) and a *lockfile*. Half your `package.json` fields trace back to solving this.
 
 **Chat app step:** 
-v1 is one `index.html` + one `<script>` tag. 
+LLM responses come back as markdown. We want them rendered as real HTML — headings, lists, inline code, code blocks. Writing our own markdown parser is a rabbit hole; we reach for `marked`. Without a package manager we'd download a zip, commit it, pin to whatever version was in the zip, and hope updates don't break us. Instead: `npm init`, `npm install marked`, and a `package.json` + lockfile appear.
 
-As we add features — message list rendering, input handling, fetch to the proxy, markdown display — the script crosses 300 lines. We split it into `api.js`, `render.js`, `state.js`, each as its own `<script>` tag. 
+`npm install marked` is the moment the manifest-and-lockfile pattern stops feeling like bureaucracy and starts feeling like the only way to say "I depend on marked 9.x" reproducibly.
 
-`render.js` and `state.js` both declare top-level `messages` → whichever loads last wins. We fall back to IIFEs + a manual `window.APP = {}` namespace and feel how fragile it is.
+### Plan (Opus 4.7):
 
-The goal is to help people understand the 2005-era script-tag pain. The discomfort of "I need structure but the language won't give it to me" is exactly what forced the module-system arms race.
+**Feel the pain first (no package manager, just zips):**
+Give the group three pre-built libs, zipped, to drop into a `/vendor/` folder and load via `<script>` tags:
+- `marked@2.x` — markdown parser
+- `sanitize@1.x` — HTML sanitizer that exposes `window.Sanitize`
+- `markdown-safe@0.5` — wrapper that calls `marked` then `sanitize`
 
-**Version 1 — naive: every `var` is a global, files collide**
+The trap: `markdown-safe` was written against `marked@1.x` (breaking API change in 2.x). Separately, `marked@2.x` bundles its *own* copy of sanitize at a different version, also assigned to `window.Sanitize`, so whichever script tag loads last clobbers the other. Running the app: markdown kinda renders, code blocks mangle, some links get stripped. No manifest → no way to see the conflict without reading three minified bundles. This is the authentic 2008 pain.
+
+Then we build our package manager and each lib ships with a real manifest declaring its deps and version ranges. Registry serves them. Resolver picks a compatible set. Install lays them out in `node_modules/`. The app `require`s them cleanly.
+
+**Scaffolded (we write upfront so students don't get stuck on plumbing):**
+- `registry/` — a local directory of `{name}/{version}/package.json` + source files. No tarballs, no network.
+- `manifest.js` — read/write a project's `package.json` dependencies.
+- `install.js` — given a resolved tree, write files into `node_modules/`.
+- `semver.js` — stub signature `satisfies(version, range)`, empty body.
+- `resolve.js` — stub signature `resolve(rootManifest) → tree`, empty body.
+
+Loading is just Node's real `require` — no need to reimplement module resolution here.
+
+**Students fill in:**
+- `semver.satisfies` — capped at `MAJOR.MINOR.PATCH` + `^` / `~` / exact. Full spec (prereleases, build metadata) is a swamp and not the lesson.
+- Dep graph construction — recursive walk across manifests.
+- Resolver — backtracking search over candidate versions.
+
+**Pseudocode: graph building**
+
+```
+function buildConstraintGraph(rootManifest):
+  constraints = {}   # { packageName: [ (requiredBy, range), ... ] }
+  queue = [rootManifest]
+  seen = set()
+  while queue not empty:
+    manifest = queue.pop()
+    for (depName, range) in manifest.dependencies:
+      constraints[depName].append((manifest.name, range))
+      for version in registry.versionsOf(depName):
+        if satisfies(version, range) and (depName, version) not in seen:
+          seen.add((depName, version))
+          queue.push(registry.manifestFor(depName, version))
+  return constraints
+```
+
+**Pseudocode: backtracking resolver**
+
+```
+function resolve(rootManifest):
+  constraints = buildConstraintGraph(rootManifest)
+  return backtrack({}, list(constraints.keys()), constraints)
+
+function backtrack(chosen, remaining, constraints):
+  if remaining is empty:
+    return chosen
+  name = remaining[0]
+  candidates = registry.versionsOf(name)
+               .filter(v => all(satisfies(v, r) for (_, r) in constraints[name]))
+               .sortedDescending()
+  for candidate in candidates:
+    newConstraints = mergeDepsOf(constraints, name, candidate)
+    if consistent(newConstraints):   # no range intersects to empty
+      result = backtrack(chosen | {name: candidate}, remaining[1:], newConstraints)
+      if result: return result
+  return None   # conflict, signal backtrack to caller
+```
+
+Most of the time highest-matching succeeds on the first try; backtracking only kicks in when a later package narrows an earlier one. That's the pedagogical moment: "see how picking marked@2.x forced us to back up and pick markdown-safe@0.3 instead of @0.5?"
+
+**Designing the fake package set — three flavors to cover:**
+1. *Happy path:* `app → marked@^1`. Trivial, warms up the pipeline.
+2. *Diamond:* two deps both want `core@^1` → dedupe to one copy.
+3. *Conflict requiring backtrack:* `app → a@^1, b@^1`; `a@1.5 → core@^2`, `b@1.2 → core@^1`. Resolver picks `a@1.5` first, hits conflict on `core`, backtracks to `a@1.4` which wants `core@^1`, succeeds.
+
+### Integrating with the chat app (Opus 4.7):
+
+Our package manager writes `node_modules/`, but the browser can't `require` from there — that's pain #4. For now we lean on the convention of the era: each browser lib in our registry ships a `dist/<name>.js` that's an IIFE attaching to a global (marked → `window.marked`, sanitize → `window.Sanitize`). That's what UMD was designed for; our toy versions can be IIFE-only.
+
+After `our-npm install marked sanitize`:
+
+```
+node_modules/
+  marked/dist/marked.js       ← IIFE, assigns window.marked
+  sanitize/dist/sanitize.js   ← IIFE, assigns window.Sanitize
+```
+
+`index.html` hand-includes them in topological order, before our code:
 
 ```html
-<!DOCTYPE html>
-<html>
-<body>
-  <div id="messages"></div>
-  <input id="input" />
-  <button id="send">Send</button>
+<!-- deps first, in topological order -->
+<script src="node_modules/sanitize/dist/sanitize.js"></script>
+<script src="node_modules/marked/dist/marked.js"></script>
 
-  <script src="state.js"></script>
-  <script src="render.js"></script>
-</body>
-</html>
+<!-- our namespace + our code -->
+<script>window.APP = {};</script>
+<script src="state.js"></script>
+<script src="render.js"></script>
 ```
 
-```js
-// state.js — holds the list of chat messages
-var messages = [];
-
-function addMessage(role, text) {
-  messages.push({ role: role, text: text });
-}
-```
-
-```js
-// render.js — paints the DOM
-var messages = document.getElementById('messages'); // same name!
-
-function renderAll() {
-  // we wanted to loop over the messages *array*,
-  // but `messages` now points at a <div> — state.js's array is gone.
-}
-```
-
-Both files do `var messages` at the top level. In classic `<script>` land that's the same as `window.messages = ...`. Whichever file loads last wins. Load order becomes load-bearing and silent. This is the pain.
-
-Version 2 uses a `window.APP = {}` pattern. In a browser, top-level `var` and function declarations become properties of `window`. `window.APP = {}` creates one shared global object that every file attaches its public API to.
-
-**Version 2 — IIFE wraps each file, one shared `APP` namespace**
-
-```html
-<!DOCTYPE html>
-<html>
-<body>
-  <div id="messages"></div>
-  <input id="input" />
-  <button id="send">Send</button>
-
-  <script>window.APP = {};</script>   <!-- create the shared namespace once -->
-  <script src="state.js"></script>
-  <script src="render.js"></script>
-</body>
-</html>
-```
-
-```js
-// state.js
-(function () {
-  var messages = []; // private to this IIFE — invisible to render.js
-
-  function addMessage(role, text) {
-    messages.push({ role: role, text: text });
-  }
-
-  // publish only what other files need
-  window.APP.state = {
-    addMessage: addMessage,
-    getMessages: function () { return messages; }
-  };
-})();
-```
+The IIFEs from section 2 just read the new globals:
 
 ```js
 // render.js
 (function () {
-  var messagesEl = document.getElementById('messages'); // private, can't collide
+  var messagesEl = document.getElementById('messages');
 
   function renderAll() {
     var list = window.APP.state.getMessages();
     messagesEl.innerHTML = list.map(function (m) {
-      return '<div>' + m.role + ': ' + m.text + '</div>';
+      var html = window.marked.parse(m.text);       // lib 1
+      var safe = window.Sanitize.clean(html);       // lib 2
+      return '<div>' + m.role + ': ' + safe + '</div>';
     }).join('');
   }
 
@@ -109,27 +131,31 @@ Version 2 uses a `window.APP = {}` pattern. In a browser, top-level `var` and fu
 })();
 ```
 
-Now `state.js`'s `messages` and `render.js`'s `messagesEl` each live inside their own function scope. The *only* thing either file leaks to the global world is its one entry on `window.APP`. You still have to pick unique keys on `APP` (`APP.state`, `APP.render`, `APP.api`), but that's one namespace to police instead of the whole global object. This is exactly why CommonJS and ES Modules feel like such a relief later — they bake "each file is its own scope, exports are explicit" into the language so you stop hand-rolling it.
+**The unsatisfying parts — and that's the point:**
+- We hand-write `<script>` load order for every transitive dep. (Stretch: have our package manager emit a `scripts.txt` in topological order — poor-man's bundler output, which is what Grunt/Gulp concat plugins did in 2012.)
+- Every lib adds another global to `window`; collisions are still possible.
+- The browser makes N requests — one per dep — paying a round-trip each (pain #7).
+- We still can't `require('./sibling')` between our *own* files; internally we're stuck with the namespace pattern.
+
+Server side is a different story: the Node proxy `require`s straight from `node_modules/` via Node's built-in resolution, no bundler needed. That contrast — *server-side modules are easy, client-side isn't* — is the setup for pains #3 and #4.
+
+**LSP note:** tsserver handles the syntax (old-style JS is still JS), but cross-file `window.APP.state.addMessage` won't autocomplete without a small `globals.d.ts` declaring `interface Window { APP: { state: ...; render: ... } }`, or JSDoc annotations on each IIFE's published object. Third-party libs are similar — `@types/marked` declares both the module export and the global, so `window.marked` autocompletes once types are installed. The module-less world doesn't give editors enough structure to help much; another authentic pain, and a natural setup for why pain #6 (TypeScript) pairs with pain #3 (modules).
+
+### References:
+- **PubGrub** — Natalie Weizenbaum, "PubGrub: Next-Generation Version Solving". The algorithm behind Dart's pub, Python's uv, and Poetry. Better error messages than naive backtracking because it records which constraints conflicted. 
+  - https://nex3.medium.com/pubgrub-2fb6470504f
+- **Cargo** — Rust's package manager, readable resolver source in `src/cargo/core/resolver/`.
+- **uv** (Astral, Rust) — Python package manager, uses PubGrub. Extensive design docs in-repo.
+  - "How UV got so fast" 
+    - https://news.ycombinator.com/item?id=46393992
+    - https://nesbitt.io/2025/12/26/how-uv-got-so-fast.html
+- **npm** — greedy heuristics, not a real solver. Hence duplicate installs and hoisting quirks. Good contrast to the solver-based world.
 
 ### Caden Todos here: 
-- Build a basic chat app using only the `<script>` tag for Javascript. Can expand on the basic patterns that Opus 4.7 gave me
+- work w claude to impl the plan here
 
-### Exercises here: 
-- Read about the old JS import system, maybe from the "JS: First 20 years" source. 
-- Read through Alman's blog post, maybe some linked ECMA standards
-- Maybe I give people version 1 of the script with a big state file and ask them to do some light refactoring into the global `APP` pattern. 
-  - Plant a footgun where, the logical ordering of imports looks fine but for some reason render has to be written first since it loads ~last for some reason?
-  - (Opus 4.7) Why it works mechanically: classic `<script src="...">` tags (no `async`/`defer`) execute synchronously in document order. Every top-level `var x = ...` or `function x() {}` is `window.x = ...`, so if two files both declare `messages`, the one listed **later** in the HTML wins. Deterministic, not racy.
-  - (Opus 4.7) Make the failure *runtime*, not load-time. If state.js and render.js both `var messages = ...` and render.js loads last, `window.messages` ends up pointing at a `<div>`. Nothing breaks at load — everything parses and every function gets defined. The app only explodes when someone types a message and `addMessage` runs `messages.push(...)` → `TypeError: messages.push is not a function`. The stack trace points at state.js (the caller), but the *cause* is render.js (the clobberer). That distance between symptom and cause is the whole lesson.
-  - (Opus 4.7) The "logical ordering" twist: put the scripts in the order a human would naturally write them — state first, render second ("define the data, then render it"). That's what breaks. The fix-by-reordering workaround (put render *first* so state clobbers it) feels absurd because it reverses the mental model, which is what makes IIFEs feel like the real answer rather than a stylistic preference.
-  - (Opus 4.7) Stronger variant: have the footgun involve a function, not just a var. Both files define `function init() { ... }`. Whichever loads last wins. At the bottom of the HTML you call `init()` — it does the wrong thing, and neither file's `init` looks wrong in isolation. Makes the point that *every* top-level identifier is a collision risk, not just variables.
-  - (Opus 4.7) Keep the exercise on vanilla `<script src>` tags only. `defer` runs scripts in order but after parsing; `type="module"` gives each script its own scope. Either one makes the footgun non-deterministic or eliminates it entirely, and students get confused about why their fix "worked."
-
-### References: 
-
-Ben Alman, "Immediately-Invoked Function Expression (IIFE)"
-- https://benalman.com/news/2010/11/immediately-invoked-function-expression/
-
-Opus 4.7
+### Exercises: 
+- Skim PubGrub. Maybe check how approachable it is first, though.
+- Implement dependency graph building, backtracking solving
 
 ---

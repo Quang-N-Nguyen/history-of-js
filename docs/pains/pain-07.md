@@ -1,14 +1,14 @@
 ---
 outline: deep
-title: "7. JS's dynamic typing hurts at scale"
+title: "7. Sending 400 files to the browser is slow"
 ---
 
-Large codebases: refactors break silently, IDE autocomplete is guessing, `undefined is not a function` at runtime. Tolerable at 1k LoC, miserable at 500k.
+HTTP/1.1 limits concurrent requests. Each request has overhead. A naive "one file per module" browser loader means a waterfall of hundreds of requests before your app boots.
 
-**Why it matters historically:** Facebook tried Flow (2014), Microsoft built TypeScript (2012, took off ~2016). TS won by being *gradual* and *deliberately unsound* — pragmatism over correctness. The decision to make TS strip-only (types are erased, not enforced at runtime) shaped how every transpiler since treats types.
+**Why it matters historically:** the practical argument for bundlers. Even after async module loading was possible (AMD, then native ESM), bundling stuck around because one request for a concatenated file beats a hundred requests for tiny files. HTTP/2 multiplexing weakened this argument but didn't kill it.
 
-**Chat app step:** message shapes have gotten complicated — `{ role, content, tokens, error, retryCount, timestamp, citations, ... }`. A refactor renames `content` to `text` along one code path and the renderer silently breaks — messages stop showing up, no error, just a blank message list. We port the app + tooling to TypeScript. Types are stripped at build; runtime is unchanged. The next refactor fails at edit time instead of at 2am during a demo.
+**Chat app step:** try shipping the chat app using native `<script type="module">` + `import`. It works — but the network tab shows a cascading waterfall of requests as the browser resolves the import chain through marked, our modules, and their transitive deps. We re-enable the bundler and the app loads in one round trip.
 
-**Tie to JS:** mirrors the TS origin story: types bolted onto a dynamic language *after the fact*, stripped at compile time, gradual adoption. The chat app becomes exactly the sort of codebase TS was designed for — lots of interacting data shapes, async edges, easy places to silently mis-wire.
+**Tie to JS:** bundlers aren't just a module-system hack — they're a performance tool, independent of whether the browser supports modules natively. Why bundling survived ESM shipping.
 
 ---

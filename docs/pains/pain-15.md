@@ -1,14 +1,14 @@
 ---
 outline: deep
-title: "15. Node-isms don't run on the edge or in the browser"
+title: "15. `node_modules` is a disaster"
 ---
 
-Node has `fs`, `path`, `process`, `Buffer`, a specific module resolution algorithm, CJS by default. None of this exists in Cloudflare Workers, Deno, or the browser. Code written for Node doesn't port.
+400MB on disk, 30,000+ files, slow to install, slow to traverse, duplicated across every project on your machine. npm's install algorithm was designed in 2010 and the ecosystem has outgrown it.
 
-**Why it matters historically:** motivated the **Web-Standard APIs** push — runtimes agreeing on `fetch`, `Request`, `Response`, `ReadableStream` as the common vocabulary. Deno (2020) and Bun (2022) both ship Web APIs as first-class. Node has been back-porting them (`fetch` landed in Node 18). This is an active, ongoing realignment.
+**Why it matters historically:** motivated **pnpm** (content-addressable store + symlinks — install once globally, symlink into each project), **yarn PnP** (no `node_modules` at all, zip-based resolution), **bun**'s install (parallelism + native speed). This is also where supply-chain concerns live: lockfiles, `npm audit`, package signing discussions (left-pad, 2016, is the canonical anecdote).
 
-**Chat app step:** our proxy runs on a VPS — always-on, bills by the hour even when idle, boot time for deploys. Port it to Cloudflare Workers: per-request billing, instant cold start, closer to users. Problems: the proxy uses `fs.readFileSync` to load prompt templates and `http` for server setup — neither exists on Workers. Migrate prompt loading to `fetch` from a Worker KV binding; swap the `http` server for the Worker `fetch` handler signature. Everything else — `Request`, `Response`, `URL`, `Headers`, `fetch` — already works, because Node back-ported them.
+**Chat app step:** we've accumulated marked, a syntax highlighter (Shiki or highlight.js), a test framework, TypeScript, esbuild, wrangler for Workers, plus dev-side tooling. `du -sh node_modules` is alarming. Migrate to pnpm; show the content-addressable store + symlinked `node_modules` structure; compare install time and disk usage against npm on a clean clone.
 
-**Tie to JS:** every `fs` call you replace is a lesson in why runtimes are converging on web-standard APIs. Also a good moment to discuss why Workers are especially well-suited to LLM proxies (cheap, global, short-lived).
+**Tie to JS:** hands-on "why does pnpm exist?" demonstration. More of a compare-and-discuss moment than a build step — nothing to construct, just to observe.
 
 ---
