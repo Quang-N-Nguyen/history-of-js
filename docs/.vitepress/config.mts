@@ -48,6 +48,8 @@ const painItems = [
 ];
 
 export default defineConfig({
+  // GitHub Pages project URL: https://cadentj.github.io/history-of-js/
+  base: "/history-of-js/",
   title: "JS Ecosystem Plan",
   description:
     "Progressive toy chat app curriculum — pain points through the JS stack",
