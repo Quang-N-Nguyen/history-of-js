@@ -2,53 +2,28 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Pain 02 — script tags &amp; globals</title>
+    <title>Pain 02 — marked, via our toy package manager</title>
     <style>
-      body {
-        font-family: system-ui, sans-serif;
-        max-width: 36rem;
-        margin: 2rem auto;
-        padding: 0 1rem;
-      }
-      #messages {
-        border: 1px solid #ccc;
-        min-height: 8rem;
-        padding: 0.75rem;
-        margin-bottom: 1rem;
-        background: #fafafa;
-      }
-      #messages > div {
-        margin: 0.25rem 0;
-        white-space: pre-wrap;
-      }
-      #input {
-        width: 70%;
-        padding: 0.4rem;
-      }
-      #send {
-        padding: 0.4rem 0.75rem;
-      }
+      body { font-family: system-ui, sans-serif; max-width: 36rem; margin: 2rem auto; padding: 0 1rem; }
+      #messages { border: 1px solid #ccc; min-height: 8rem; padding: 0.75rem; margin-bottom: 1rem; background: #fafafa; }
+      #messages > div { margin: 0.5rem 0; }
+      #input { width: 70%; padding: 0.4rem; }
+      #send { padding: 0.4rem 0.75rem; }
+      code { background: #eee; padding: 0 0.2rem; border-radius: 2px; }
     </style>
   </head>
   <body>
     <h1>Chat</h1>
-    <!--
-      If Send does nothing after switching exercise vs solution on the same port,
-      hard-refresh (e.g. Cmd+Shift+R): /state.js can be cached per-URL. Prefer
-      npm run exercise (port 8080) vs npm run solution (8081) so caches do not mix.
-    -->
-
     <div id="messages"></div>
     <input id="input" type="text" placeholder="Message" autocomplete="off" />
     <button id="send" type="button">Send</button>
 
-    <!--
-      Create the shared namespace once, before feature scripts.
-      Vanilla script tags only (no defer / no type="module").
-    -->
-    <script>
-      window.APP = {};
-    </script>
+    <!-- Toy-npm-installed deps: topological order by hand. -->
+    <script src="node_modules/sanitize/dist/sanitize.js"></script>
+    <script src="node_modules/marked/dist/marked.js"></script>
+    <script src="node_modules/markdown-safe/dist/markdown-safe.js"></script>
+
+    <script>window.APP = {};</script>
     <script src="state.js"></script>
     <script src="render.js"></script>
     <script src="api.js"></script>

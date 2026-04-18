@@ -22,9 +22,12 @@ function strip(path: string, text: string): string {
   return text;
 }
 
+const SKIP_DIRS = new Set(['node_modules', '.git']);
+
 function walk(dir: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {
+    if (SKIP_DIRS.has(entry)) continue;
     const full = join(dir, entry);
     if (statSync(full).isDirectory()) out.push(...walk(full));
     else out.push(full);

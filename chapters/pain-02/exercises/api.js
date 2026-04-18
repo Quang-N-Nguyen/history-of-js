@@ -1,4 +1,4 @@
-// Network: fetch local proxy → OpenRouter. Wrapped in an IIFE, published to window.APP.api.
+// Network: identical to pain-01's minimal version.
 (function () {
   var CHAT_URL = 'http://127.0.0.1:3001/chat';
 
@@ -25,9 +25,13 @@
     window.APP.render.renderAll();
   }
 
-  /*TODO:
-    Use a document selector to get the send button.
-    Add an event listener to the button to send the user's message.
-    You should get and clear the content in the input field before sending the message.
-  */
+  window.APP.api = { sendUserMessage: sendUserMessage };
+
+  document.getElementById('send').addEventListener('click', function () {
+    var input = document.getElementById('input');
+    var text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    sendUserMessage(text);
+  });
 })();

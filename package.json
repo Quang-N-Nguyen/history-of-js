@@ -15,6 +15,10 @@
   "devDependencies": {
     "@hono/node-server": "^1.19.14",
     "@types/node": "^25.6.0",
+    "acorn": "^8.16.0",
+    "acorn-typescript": "^1.4.13",
+    "acorn-walk": "^8.3.5",
+    "astring": "^1.9.0",
     "hono": "^4.12.14",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3",

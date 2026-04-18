@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Pain 04 — toy bundler</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 36rem; margin: 2rem auto; padding: 0 1rem; }
+      #messages { border: 1px solid #ccc; min-height: 8rem; padding: 0.75rem; margin-bottom: 1rem; background: #fafafa; }
+      #messages > div { margin: 0.25rem 0; white-space: pre-wrap; }
+      #input { width: 70%; padding: 0.4rem; }
+      #send { padding: 0.4rem 0.75rem; }
+    </style>
+  </head>
+  <body>
+    <h1>Chat</h1>
+    <div id="messages"></div>
+    <input id="input" type="text" placeholder="Message" autocomplete="off" />
+    <button id="send" type="button">Send</button>
+
+    <!-- Whole app, concatenated from src/*.js by bundler.js. -->
+    <script src="bundle.js"></script>
+  </body>
+</html>

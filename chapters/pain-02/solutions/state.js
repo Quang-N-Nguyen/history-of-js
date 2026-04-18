@@ -1,8 +1,5 @@
-// State: private data inside an IIFE; only window.APP.state is public.
+// State: unchanged from pain-01. Private array, publish window.APP.state.
 (function () {
-
-  // TODO: Implement.
-  // BEGIN:SOLUTION
   var messages = [];
 
   function addMessage(role, text) {
@@ -11,9 +8,6 @@
 
   window.APP.state = {
     addMessage: addMessage,
-    getMessages: function () {
-      return messages;
-    }
+    getMessages: function () { return messages; }
   };
-  // END:SOLUTION
 })();
