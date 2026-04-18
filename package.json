@@ -3,11 +3,21 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "exercise": "bash scripts/exercise.sh",
+    "solution": "bash scripts/exercise.sh --solution",
+    "generate:exercise": "tsx scripts/generate-exercises.ts",
+    "proxy": "tsx proxy/server.ts",
+    "proxy:dev": "tsx --env-file=.env proxy/server.ts",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs"
   },
   "devDependencies": {
+    "@hono/node-server": "^1.19.14",
+    "@types/node": "^25.6.0",
+    "hono": "^4.12.14",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3",
     "vitepress": "^1.6.3"
   }
 }

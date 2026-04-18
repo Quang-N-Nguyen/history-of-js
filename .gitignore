@@ -1,3 +1,6 @@
 node_modules/
+.env
 docs/.vitepress/cache/
 docs/.vitepress/dist/
+
+__pycache__/
