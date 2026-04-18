@@ -1,3 +1,8 @@
+# Plan
+
+The same material is also published as a VitePress site: run `npm install` and `npm run docs:dev`, or browse `docs/` (overview: `docs/index.md`, pain pages: `docs/pains/pain-NN.md`, sessions: `docs/sessions.md`).
+
+---
 
 The web has a long history, and there are a lot of design decisions that went into the modern javascript ecosystem. There are also a lot of tools and conventions (many of them overlapping), and it would be great to orient myself on them.
 
