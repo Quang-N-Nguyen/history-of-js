@@ -1,6 +1,6 @@
 {
   "entry": "bundler.js",
-  "run": "node bundler.js src/main.js > bundle.js && npx serve -l 3000 .",
+  "run": "node bundler.js src/main.js > bundle.js && npx --yes serve -l 3000 .",
   "previewPort": 3000,
   "order": 4
 }

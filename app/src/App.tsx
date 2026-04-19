@@ -106,6 +106,8 @@ export function App() {
   const shellTokenRef = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const serverUnsubRef = useRef<(() => void) | null>(null);
+  /** Once we pick a preview URL for this lesson run, ignore further server-ready ports. */
+  const previewChosenRef = useRef(false);
   /** Latest lesson for async session callbacks (avoids stale preview port). */
   const lessonRef = useRef(lesson);
   lessonRef.current = lesson;
@@ -141,6 +143,7 @@ export function App() {
     let cancelled = false;
     setBootError(null);
     setPreviewUrl(null);
+    previewChosenRef.current = false;
     setView('editor');
     setInstallDone(false);
     shellRef.current?.kill();
@@ -208,6 +211,7 @@ export function App() {
   useEffect(() => {
     if (!lesson) return;
     let cancelled = false;
+    previewChosenRef.current = false;
     serverUnsubRef.current?.();
     serverUnsubRef.current = null;
     let unsub: (() => void) | undefined;
@@ -215,11 +219,16 @@ export function App() {
       .then((session) => {
         if (cancelled) return;
         unsub = session.onServerReady((port, url) => {
-          const previewPort = lessonRef.current?.previewPort;
-          if (previewPort && port === previewPort) {
-            setPreviewUrl(url);
-            setPreviewNonce((n) => n + 1);
-          }
+          const want = lessonRef.current?.previewPort;
+          if (!want) return;
+          if (previewChosenRef.current) return;
+          // Agent HTTP port — never treat as the lesson static server.
+          if (port === 8080) return;
+          // First new listen port wins. `serve` may use an ephemeral port if -l 3000 fails
+          // or flags differ, so we no longer require port === lesson.previewPort.
+          previewChosenRef.current = true;
+          setPreviewUrl(url);
+          setPreviewNonce((n) => n + 1);
         });
         serverUnsubRef.current = unsub;
       })
@@ -304,6 +313,7 @@ export function App() {
     setActivePath(entry);
     setOpenTabs(entry ? [entry] : []);
     setPreviewUrl(null);
+    previewChosenRef.current = false;
     setView('editor');
     setInstallDone(false);
     shellRef.current?.kill();
@@ -369,6 +379,7 @@ export function App() {
     if (!lesson) return;
     setRunning(true);
     setPreviewUrl(null);
+    previewChosenRef.current = false;
     if (lesson.previewPort) setView('preview');
     shellRef.current?.writeCommand(lesson.run);
   }, [lesson]);
@@ -377,6 +388,7 @@ export function App() {
     shellRef.current?.sendSignal('c');
     setRunning(false);
     setPreviewUrl(null);
+    previewChosenRef.current = false;
     setView('editor');
   }, []);
 

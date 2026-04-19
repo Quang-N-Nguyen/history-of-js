@@ -13,6 +13,8 @@ import { spawn as ptySpawn, type IPty } from 'node-pty';
 import { WebSocketServer } from 'ws';
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
+/** Bind all interfaces so container runtimes (Docker, Cloudflare) can reach the process — not only loopback. */
+const LISTEN_HOST = process.env.LISTEN_HOST || '0.0.0.0';
 const WORKSPACE = '/workspace';
 const AGENT_SHARED_SECRET = process.env.AGENT_SHARED_SECRET || '';
 
@@ -126,23 +128,49 @@ async function handlePreviewGet(c: Context) {
   const denied = requireAgentSecretHono(c);
   if (denied) return denied;
 
-  const portStr = c.req.query('port');
-  if (!portStr) return c.text('Missing port query', 400);
-  const port = parseInt(portStr, 10);
+  const pathname = c.req.path;
+  let port: number;
+  let pathAfter: string;
+
+  // Prefer /preview/<port>/… so subresources (state.js, …) carry the port in the path.
+  // Query-only ?port= breaks relative URLs: they resolve to /s/.../preview/foo.js with no port.
+  const pathStyle = pathname.match(/^\/preview\/(\d+)(\/.*)?$/);
+  if (pathStyle) {
+    port = parseInt(pathStyle[1], 10);
+    const rest = pathStyle[2];
+    pathAfter = rest && rest.length > 0 ? rest : '/';
+  } else {
+    const portStr = c.req.query('port');
+    if (!portStr) {
+      return c.text('Missing port (use /preview/<port>/… or ?port=)', 400);
+    }
+    port = parseInt(portStr, 10);
+    pathAfter = pathname.replace(/^\/preview\/?/, '/') || '/';
+  }
+
   if (Number.isNaN(port) || port < 1 || port > 65535) return c.text('Bad port', 400);
 
-  const pathAfter = c.req.path.replace(/^\/preview\/?/, '/') || '/';
   const targetUrl = new URL(pathAfter, `http://127.0.0.1:${port}`);
 
   let r: Response;
   try {
-    r = await fetch(targetUrl, { method: 'GET' });
+    // Prefer uncompressed: Node's fetch may decompress the body but leave Content-Encoding:
+    // gzip, which breaks the next hop (Worker/browser) with "Gzip decompression failed".
+    r = await fetch(targetUrl, {
+      method: 'GET',
+      headers: { 'Accept-Encoding': 'identity' },
+    });
   } catch {
     return c.text('Upstream error', 502);
   }
 
   const headers = new Headers(r.headers);
   headers.delete('transfer-encoding');
+  headers.delete('content-encoding');
+  headers.delete('content-length');
+  // Upstream (e.g. serve) may send these; they break embedding in the workshop preview iframe.
+  headers.delete('x-frame-options');
+  headers.delete('content-security-policy');
   return new Response(r.body, { status: r.status, headers });
 }
 
@@ -154,9 +182,15 @@ const server = serve(
   {
     fetch: app.fetch,
     port: PORT,
+    hostname: LISTEN_HOST,
   },
   (info) => {
-    console.log(`agent listening on ${info.port}`);
+    console.log(`agent listening on ${LISTEN_HOST}:${info.port}`);
+    if (!AGENT_SHARED_SECRET) {
+      console.error(
+        'AGENT_SHARED_SECRET is unset: /exec, /preview, and WebSockets will respond with 503 until it is set (e.g. Worker .dev.vars or container env).',
+      );
+    }
   },
 );
 

@@ -69,7 +69,8 @@ export async function bootOnce(): Promise<WorkshopSession> {
       try {
         const msg = JSON.parse(String(ev.data)) as { type?: string; port?: number };
         if (msg.type === 'server-ready' && typeof msg.port === 'number') {
-          const previewUrl = joinBasePath(data.baseUrl, `/preview?port=${msg.port}`);
+          // Port in path so every asset URL is /preview/<port>/… (query-only ?port= is not on script requests).
+          const previewUrl = joinBasePath(data.baseUrl, `/preview/${msg.port}/`);
           for (const cb of serverReadyListeners) {
             cb(msg.port, previewUrl);
           }

@@ -6,6 +6,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     iproute2 \
     && rm -rf /var/lib/apt/lists/*
 
+# Static file server for lessons (avoid interactive `npx` prompts in the PTY).
+RUN npm install -g serve@14
+
 WORKDIR /agent
 
 COPY package.json package-lock.json* ./

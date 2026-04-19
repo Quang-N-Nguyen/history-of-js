@@ -15,13 +15,14 @@ export class StudentSession extends Container<Env> {
   pingEndpoint = '127.0.0.1/healthz';
 
   constructor(ctx: DurableObjectState<Env>, env: Env) {
-    super(ctx, env, {
-      envVars: {
-        AGENT_SHARED_SECRET: env.AGENT_SHARED_SECRET ?? '',
-        PORT: '8080',
-        NODE_ENV: 'production',
-      },
-    });
+    // Note: @cloudflare/containers only reads defaultPort/sleepAfter from the 3rd ctor arg;
+    // envVars there are ignored. Set `this.envVars` so the container process receives them.
+    super(ctx, env);
+    this.envVars = {
+      AGENT_SHARED_SECRET: env.AGENT_SHARED_SECRET ?? '',
+      PORT: '8080',
+      NODE_ENV: 'production',
+    };
   }
 
   override async fetch(request: Request): Promise<Response> {
@@ -51,7 +52,22 @@ function corsHeaders(request: Request, env: Env): Record<string, string> {
   };
 }
 
+/**
+ * HTTP responses get CORS headers. WebSocket upgrades must not be rebuilt from `res.body` only —
+ * that drops `Response.webSocket` and breaks status 101 (miniflare: "did not return 101").
+ */
 function withCors(res: Response, request: Request, env: Env): Response {
+  if (res.webSocket) {
+    const h = new Headers(res.headers);
+    for (const [k, v] of Object.entries(corsHeaders(request, env))) {
+      h.set(k, v);
+    }
+    return new Response(null, { status: res.status, webSocket: res.webSocket, headers: h });
+  }
+  // Passthrough other upgrades without cloning body-only (preserves non-standard 101 handling).
+  if (request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
+    return res;
+  }
   const h = new Headers(res.headers);
   for (const [k, v] of Object.entries(corsHeaders(request, env))) {
     h.set(k, v);
