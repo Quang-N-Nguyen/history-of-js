@@ -1,15 +1,16 @@
 import type { ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
-import { ExternalLink } from 'lucide-react';
+import { Check, Copy } from 'lucide-react';
 
 type Props = {
   url: string | null;
   nonce?: number;
-  onPopOut: () => void;
+  onCopyUrl: () => void;
+  copied?: boolean;
   toolbarExtras?: ReactNode;
 };
 
-export function PreviewPane({ url, nonce = 0, onPopOut, toolbarExtras }: Props) {
+export function PreviewPane({ url, nonce = 0, onCopyUrl, copied = false, toolbarExtras }: Props) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-1.5">
@@ -19,9 +20,9 @@ export function PreviewPane({ url, nonce = 0, onPopOut, toolbarExtras }: Props) 
           </span>
           {toolbarExtras}
         </div>
-        <Button type="button" size="xs" variant="ghost" onClick={onPopOut} disabled={!url}>
-          <ExternalLink className="size-3.5" />
-          Pop out
+        <Button type="button" size="xs" variant="ghost" onClick={onCopyUrl} disabled={!url}>
+          {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+          {copied ? 'Copied!' : 'Copy URL'}
         </Button>
       </div>
       <div className="min-h-0 flex-1">

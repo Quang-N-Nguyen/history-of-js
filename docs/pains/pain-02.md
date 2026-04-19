@@ -9,7 +9,7 @@ Pre-2010: you wanted jQuery, you downloaded `jquery.min.js` and committed it to 
 Motivated npm (2010, originally for Node), later Bower (for browser, now dead), and eventually the idea that a JS project has a *manifest* (`package.json`) and a *lockfile*. Half your `package.json` fields trace back to solving this.
 
 **Chat app step:** 
-LLM responses come back as markdown. We want them rendered as real HTML — headings, lists, inline code, code blocks. Writing our own markdown parser is a rabbit hole; we reach for `marked`. Without a package manager we'd download a zip, commit it, pin to whatever version was in the zip, and hope updates don't break us. Instead: `npm init`, `npm install marked`, and a `package.json` + lockfile appear.
+LLM responses come back as markdown (in the workshop the assistant is simulated so we focus on tooling, not API keys or fetch wiring). We want them rendered as real HTML — headings, lists, inline code, code blocks. Writing our own markdown parser is a rabbit hole; we reach for `marked`. Without a package manager we'd download a zip, commit it, pin to whatever version was in the zip, and hope updates don't break us. Instead: `npm init`, `npm install marked`, and a `package.json` + lockfile appear.
 
 `npm install marked` is the moment the manifest-and-lockfile pattern stops feeling like bureaucracy and starts feeling like the only way to say "I depend on marked 9.x" reproducibly.
 

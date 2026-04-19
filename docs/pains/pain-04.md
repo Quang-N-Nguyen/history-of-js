@@ -7,7 +7,7 @@ CJS assumes you can block on a local filesystem read. Browsers can't — fetchin
 
 **Why it matters historically:** motivated AMD (`define([...deps], factory)`) as an async alternative, UMD as the "works in both" wrapper, and — critically — **bundlers** as a workaround: pre-compile the whole dep graph into a single file so the browser never has to do runtime resolution. Browserify (2011) and webpack (2012) were born here.
 
-**Chat app step:** we love how the proxy splits across files. We want the same on the client — `require('./render')`, `require('./api')`. The browser can't do `require`. We write a ~150-line zero-dep Node bundler and ship the chat app as one bundled `<script>`.
+**Chat app step:** we love how the proxy splits across files. We want the same on the client — `require('./render')`, `require('./api')`. The browser can't do `require`. We write a ~150-line zero-dep Node bundler and ship the chat app as one bundled `<script>`. (Assistant replies are simulated in the workshop so the lesson stays about bundling, not live LLM calls.)
 
 ### Plan: toy bundler, Browserify-shaped (Opus 4.7)
 

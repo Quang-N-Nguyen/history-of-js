@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { WebContainer } from '@webcontainer/api';
 import type { Terminal as XTerm } from 'xterm';
 import { lessons } from '@/lessons';
 import type { Lesson, LessonFile } from '@/lesson-types';
@@ -11,7 +10,9 @@ import {
   mountLesson,
   packageJsonNeedsInstall,
   spawnWithOutput,
+  writeFile,
   type ShellHandle,
+  type WorkshopSession,
 } from '@/container';
 import {
   clearChapter,
@@ -53,7 +54,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { BookOpen, ExternalLink, Play, Square, TerminalIcon } from 'lucide-react';
+import { BookOpen, Check, Copy, Play, Square, TerminalIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 function parsePainFromUrl(): number {
@@ -101,11 +102,11 @@ export function App() {
 
   const xtermRef = useRef<XTerm | null>(null);
   const shellRef = useRef<ShellHandle | null>(null);
-  const pendingShellRef = useRef<{ wc: WebContainer; token: number } | null>(null);
+  const pendingShellRef = useRef<{ session: WorkshopSession; token: number } | null>(null);
   const shellTokenRef = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const serverUnsubRef = useRef<(() => void) | null>(null);
-  /** Latest lesson for async WebContainer callbacks (avoids stale preview port). */
+  /** Latest lesson for async session callbacks (avoids stale preview port). */
   const lessonRef = useRef(lesson);
   lessonRef.current = lesson;
 
@@ -163,27 +164,27 @@ export function App() {
 
     void (async () => {
       try {
-        const wc = await bootOnce();
+        const session = await bootOnce();
         if (cancelled) return;
-        await mountLesson(wc, mapToLessonFiles(map));
+        await mountLesson(session, mapToLessonFiles(map));
         if (cancelled) return;
         const pkg = map.get('package.json');
         if (pkg && packageJsonNeedsInstall(pkg)) {
           writeTermLine('$ npm install');
-          await spawnWithOutput(wc, 'npm', ['install'], appendTerm);
+          await spawnWithOutput(session, 'npm', ['install'], appendTerm);
           writeTermLine('');
         }
         if (cancelled) return;
         const term = xtermRef.current;
         if (!term) {
-          pendingShellRef.current = { wc, token: myToken };
+          pendingShellRef.current = { session, token: myToken };
           return;
         }
         pendingShellRef.current = null;
         term.clear();
         shellRef.current?.kill();
         shellRef.current = null;
-        const handle = await attachShell(wc, term);
+        const handle = await attachShell(session, term);
         if (cancelled || myToken !== shellTokenRef.current) {
           handle.kill();
           return;
@@ -211,9 +212,9 @@ export function App() {
     serverUnsubRef.current = null;
     let unsub: (() => void) | undefined;
     void bootOnce()
-      .then((wc) => {
+      .then((session) => {
         if (cancelled) return;
-        unsub = wc.on('server-ready', (port, url) => {
+        unsub = session.onServerReady((port, url) => {
           const previewPort = lessonRef.current?.previewPort;
           if (previewPort && port === previewPort) {
             setPreviewUrl(url);
@@ -238,10 +239,10 @@ export function App() {
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(async () => {
         saveFile(lesson.pain, mode, relPath, contents);
-        const wc = getWebContainer();
-        if (wc) {
+        const session = getWebContainer();
+        if (session) {
           try {
-            await wc.fs.writeFile(absWorkspacePath(wc, relPath), contents);
+            await writeFile(session, absWorkspacePath(session, relPath), contents);
           } catch {
             /* ignore */
           }
@@ -310,24 +311,24 @@ export function App() {
     pendingShellRef.current = null;
     void (async () => {
       try {
-        const wc = await bootOnce();
-        await mountLesson(wc, mapToLessonFiles(map));
+        const session = await bootOnce();
+        await mountLesson(session, mapToLessonFiles(map));
         const pkg = map.get('package.json');
         if (pkg && packageJsonNeedsInstall(pkg)) {
           writeTermLine('$ npm install');
-          await spawnWithOutput(wc, 'npm', ['install'], appendTerm);
+          await spawnWithOutput(session, 'npm', ['install'], appendTerm);
           writeTermLine('');
         }
         const term = xtermRef.current;
         if (!term) {
-          pendingShellRef.current = { wc, token };
+          pendingShellRef.current = { session, token };
           return;
         }
         pendingShellRef.current = null;
         term.clear();
         shellRef.current?.kill();
         shellRef.current = null;
-        const handle = await attachShell(wc, term);
+        const handle = await attachShell(session, term);
         if (token !== shellTokenRef.current) {
           handle.kill();
           return;
@@ -379,8 +380,13 @@ export function App() {
     setView('editor');
   }, []);
 
-  const handlePopPreview = useCallback(() => {
-    if (previewUrl) window.open(previewUrl, '_blank');
+  const [copiedUrl, setCopiedUrl] = useState(false);
+  const handleCopyPreviewUrl = useCallback(() => {
+    if (!previewUrl) return;
+    void navigator.clipboard.writeText(previewUrl).then(() => {
+      setCopiedUrl(true);
+      setTimeout(() => setCopiedUrl(false), 1500);
+    });
   }, [previewUrl]);
 
   const handleTerminalReady = useCallback((t: XTerm | null) => {
@@ -389,13 +395,13 @@ export function App() {
     const pending = pendingShellRef.current;
     if (!pending) return;
     pendingShellRef.current = null;
-    const { wc, token } = pending;
+    const { session, token } = pending;
     void (async () => {
       t.clear();
       shellRef.current?.kill();
       shellRef.current = null;
       try {
-        const handle = await attachShell(wc, t);
+        const handle = await attachShell(session, t);
         if (token !== shellTokenRef.current) {
           handle.kill();
           return;
@@ -477,9 +483,9 @@ export function App() {
                 Stop
               </Button>
               {previewUrl ? (
-                <Button type="button" size="sm" variant="outline" onClick={handlePopPreview}>
-                  <ExternalLink className="size-3.5" />
-                  Pop preview
+                <Button type="button" size="sm" variant="outline" onClick={handleCopyPreviewUrl}>
+                  {copiedUrl ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+                  {copiedUrl ? 'Copied!' : 'Copy preview URL'}
                 </Button>
               ) : null}
             </div>
@@ -488,7 +494,7 @@ export function App() {
 
         {bootError ? (
           <div className="border-b border-destructive/50 bg-destructive/10 px-4 py-2 text-sm text-destructive">
-            WebContainer: {bootError}
+            Runtime: {bootError}
           </div>
         ) : null}
 
@@ -547,7 +553,8 @@ export function App() {
                         <PreviewPane
                           url={previewUrl}
                           nonce={previewNonce}
-                          onPopOut={handlePopPreview}
+                          onCopyUrl={handleCopyPreviewUrl}
+                          copied={copiedUrl}
                           toolbarExtras={
                             <ViewToggle
                               value={view}

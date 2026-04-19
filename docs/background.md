@@ -9,7 +9,7 @@ When JS launched in 1995, pages could do math and move things around — but tal
 Every browser API that waits on something — network, disk, timers, user input, streaming — is async. The callback → Promise → async/await progression is the single most important readability shift in JS's history. It also forced the language to formalize the **event loop** and **microtask queue**, which are the mental model every JS dev needs and the source of most "why didn't my UI update when I expected" bugs.
 
 **Chat app step:**
-We need to send a message to the proxy and display the reply. We write the request three ways, chronologically, to feel the arc — then use the modern form for the rest of the project.
+We need to send a message and display the reply (in the workshop the backend is simulated so we can focus on async patterns, not running a real chat server). We write the request three ways, chronologically, to feel the arc — then use the modern form for the rest of the project.
 
 1. **XHR with callbacks (1999).** Nested `onload`/`onerror` handlers, no error propagation.
 2. **Promises (2015).** Chainable `.then`, errors bubble through `.catch`. Still callback-shaped.

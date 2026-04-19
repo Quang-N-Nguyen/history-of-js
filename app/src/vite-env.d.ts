@@ -1,13 +1,9 @@
 /// <reference types="vite/client" />
 
-declare module '*?worker' {
-  const workerConstructor: new () => Worker;
-  export default workerConstructor;
+interface ImportMetaEnv {
+  readonly VITE_WORKER_URL: string;
 }
 
-declare module 'virtual:lessons' {
-  import type { Lesson } from '@/lesson-types';
-  export const lessons: Lesson[];
-  const _default: Lesson[];
-  export default _default;
+interface ImportMeta {
+  readonly env: ImportMetaEnv;
 }

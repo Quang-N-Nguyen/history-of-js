@@ -14,7 +14,7 @@ Forced the IIFE pattern and "namespace object" pattern as poor-man's modules. Mo
 **Chat app step:** 
 v1 is one `index.html` + one `<script>` tag. 
 
-As we add features — message list rendering, input handling, fetch to the proxy, markdown display — the script crosses 300 lines. We split it into `api.js`, `render.js`, `state.js`, each as its own `<script>` tag. 
+As we add features — message list rendering, input handling, async “LLM” replies (simulated in the workshop so we focus on JS structure, not auth or network setup), markdown display — the script crosses 300 lines. We split it into `api.js`, `render.js`, `state.js`, each as its own `<script>` tag. 
 
 `render.js` and `state.js` both declare top-level `messages` → whichever loads last wins. We fall back to IIFEs + a manual `window.APP = {}` namespace and feel how fragile it is.
 

@@ -27,13 +27,27 @@ export function Terminal({ onTerminal, onResize }: Props) {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host);
-    fit.fit();
-    onResizeRef.current?.(term.cols, term.rows);
-    onTerminalRef.current(term);
+
+    const runFit = () => {
+      if (host.clientWidth === 0 || host.clientHeight === 0) return;
+      try {
+        fit.fit();
+      } catch {
+        return;
+      }
+      onResizeRef.current?.(term.cols, term.rows);
+    };
+
+    // Defer until layout: open + immediate fit() often sees 0×0 in flex panels and breaks xterm.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        runFit();
+        onTerminalRef.current(term);
+      });
+    });
 
     const ro = new ResizeObserver(() => {
-      fit.fit();
-      onResizeRef.current?.(term.cols, term.rows);
+      runFit();
     });
     ro.observe(host);
 
