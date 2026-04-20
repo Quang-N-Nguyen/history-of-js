@@ -6,7 +6,7 @@
     {
       "class_name": "StudentSession",
       "image": "../runtime/Dockerfile",
-      "max_instances": 50,
+      "max_instances": 1,
       "instance_type": "lite"
     }
   ],
