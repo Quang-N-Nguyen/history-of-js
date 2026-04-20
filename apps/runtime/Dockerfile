@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Static file server for lessons (avoid interactive `npx` prompts in the PTY).
 RUN npm install -g serve@14
 
-WORKDIR /gateway
+WORKDIR /runtime
 
 COPY package.json ./
 # Lockfile lives at repo root (pnpm); image build context is this package only.

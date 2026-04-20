@@ -3,13 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "exercise": "bash scripts/exercise.sh",
-    "solution": "bash scripts/exercise.sh --solution",
     "generate:exercise": "tsx scripts/generate-exercises.ts",
     "app:dev": "pnpm --filter web dev",
     "app:build": "pnpm --filter web build",
     "app:preview": "pnpm --filter web preview",
-    "router:dev": "pnpm --filter router dev",
+    "gateway:dev": "pnpm --filter gateway dev",
     "runtime:dev": "pnpm --filter runtime dev"
   },
   "devDependencies": {
